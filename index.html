@@ -27,9 +27,9 @@
                 <ul class="navbar-nav">
                     <li class="nav-item"><a class="nav-link js-scroll-trigger" href="#about">About</a></li>
 					<li class="nav-item"><a class="nav-link js-scroll-trigger" href="#reading">Reading Group</a></li>
-                    <li class="nav-item"><a class="nav-link js-scroll-trigger" href="#projects">Projects</a></li>
+                    <li class="nav-item"><a class="nav-link js-scroll-trigger" href="#research">Current Research</a></li>
                     <li class="nav-item"><a class="nav-link js-scroll-trigger" href="#publications">Publications</a></li>
-                    <li class="nav-item"><a class="nav-link js-scroll-trigger" href="assets/SarahCooney_CV.pdf" target="_blank">CV</a></li>
+                    <li class="nav-item"><a class="nav-link js-scroll-trigger" href="assets/HassanHamad_CV.pdf" target="_blank">CV</a></li>
                 </ul>
             </div>
         </nav>
@@ -59,13 +59,12 @@
 			
 		    <hr class="m-0" />
 			
-			<section class="resume-section" id="reading">
+			<section class="resume-section" id="Research Lab">
                 <div class="resume-section-content">
-				 <h2 class="mb-5">HCI Reading Group</h2>
+				 <h2 class="mb-5">HAL Group</h2>
                     <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <p class="mb-5">I lead the USC HCI Reading group. Meetings for Fall 2021 are Wednesday 3-4pm PDT. The reading calendar can be found <a href="https://docs.google.com/spreadsheets/d/1BlhtpcrEvgNzGG3P3jX0vMknvhdGoZKW-d6UgwF9Zdg/edit?usp=sharing" target="_blank">here.</a> Email me for Zoom information</p>
-                            
+                            <p class="mb-5"> I am part of the <a href="https://hal.usc.edu/" target="_blank">Hardware Accelerated Learning (HAL)</a> group at USC. We focus on co-designing the algorithms and hardware for reduced comlexity training of Neural Networks.</p>
                         </div>
                     </div>
    
@@ -80,21 +79,24 @@
 			
 			
             <hr class="m-0" />
-            <!-- Projects-->
-            <section class="resume-section" id="projects">
+            <!-- Current Research-->
+            <section class="resume-section" id="research">
                 <div class="resume-section-content">
-                    <h2 class="mb-5">Selected Projects</h2>
+                    <h2 class="mb-5">Current Research</h2>
                     <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <h3 class="mb-0">PatternPainter</h3>
-                            
-                            <p>A software system designed to allow everyday citizens to create designs for urban repair projects in their neighborhoods without the need for training or expert facilitation. Try the prototype <a href="http://ec2-3-129-22-64.us-east-2.compute.amazonaws.com/BuildB/" target="_blank">here</a>. (Enter any text as the MturkID.)</p>
+                            <h3 class="mb-0">Training Convolutional Neural Networks using Logarithmic Computations</h3>
+                            Floating point numbers are the go-to format when doing all sorts of computations. They perform very accurate computations while supporting large dynamic range. This comes at the cost of 
+                            increased memory footprint and computational complexity compared to fixed point arithmetic. On the other hand, fixed point arithmetic has much lower precision and range; it performs approximate compuations. 
+                            Using the fact that deep learning is inherently noise-tolerant and doesn't require exact compuations, we show that trainig neural networks using fixed point format and in the logarithmic domain is possible 
+                            at negligible performance degradation but significant area gain.
+                            <p></p>
                         </div>
                     </div>
                     <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <h3 class="mb-0">The CommYOUnity Data Project</h3>
-                            <p>A project to collect a dataset with photos of people's neighborhoods with captions describing what they love and what improvements they would make. Contribute <a href="https://www.rootedplace.org/data" target="_blank">here</a></p>
+                            <h3 class="mb-0">Efficient and Compact Relation Extraction Model from Financial Documents</h3>
+                            <p> We build a compact model that efficiently extracts a desired set of relations from the 10K filings of publicly traded documents. Our model does not require a big pre-trained langauge model, such as BERT.</p>
                         </div>
                     </div>
                    
@@ -107,65 +109,40 @@
 					
 					<div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <div class="subheading mb-3">Opening the Gate to Urban Repair: A Tool for Citizen-Led Design</a></div>
-                            <div>Sarah Cooney and Barath Raghavan</div>
-							<p>To Appear: CSCW 2022</p>
+                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/ISIT_2019.pdf" target="_blank">Joint state sensing and communication over memoryless multiple access channels</a></div>
+                            <div>Mari Kobayashi, Hassan Hamad, Gerhard Kramer, Giuseppe Caire</div>
+							<p>2019 IEEE International Symposium on Information Theory (ISIT), 270-274</p>
                         </div>
-                        <div class="flex-shrink-0"><span class="text-primary">2022</span></div>
+                        <div class="flex-shrink-0"><span class="text-primary">2019</span></div>
                     </div>
 					
                     <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/CHIDC_2021.pdf" target="_blank"> Toward Co-Creative Tools for Tactical Urban Revitalization </a></div>
-                            <div>Sarah Cooney</div>
-                            <p>Doctoral Consortium, CHI 2021, Virtual</p>
+                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/CWIT_2019.pdf" target="_blank"> Performance analysis of turbo codes over the Bernoulli-Gaussian impulsive noise channel </a></div>
+                            <div>Ghassan M Kraidy, Hassan Hamad</div>
+                            <p>2019 16th Canadian Workshop on Information Theory (CWIT)</p>
                         </div>
-                        <div class="flex-shrink-0"><span class="text-primary">May 2021</span></div>
+                        <div class="flex-shrink-0"><span class="text-primary">2019</span></div>
                     </div>
-					
+				
+                    <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
+                        <div class="flex-grow-1">
+                            
+                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/photonics_journal_2019.pdf" target="_blank"> Small-signal analysis of high-performance VCSELs </a></div>
+                            <div>Wissam Hamad, Marwan Bou Sanayeh, Tobias Siepelmeyer, Hassan Hamad, Werner HE Hofmann</div>
+							<p>IEEE Photonics Journal</p>
+                        </div>
+                        <div class="flex-shrink-0"><span class="text-primary">2019</span></div>
+                    </div>
 					
 					   <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/altCHI_2021.pdf" target="_blank"> Riding the Bus in Los Angeles: Creating Cultural Micro-Exposures via Technology </a></div>
-                            <div>Sarah Cooney</div>
-                            <p>alt.CHI, CHI 2021, Virtual </p>
+                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/CWIT_2017.pdf" target="_blank"> Performance analysis of convolutional codes over the Bernoulli-Gaussian impulsive noise channel </a></div>
+                            <div>Hassan Hamad, Ghassan M Kraidy</div>
+                            <p>2017 15th Canadian Workshop on Information Theory (CWIT) </p>
                         </div>
-                        <div class="flex-shrink-0"><span class="text-primary">May 2021</span></div>
+                        <div class="flex-shrink-0"><span class="text-primary">2017</span></div>
                     </div>
-                
-				<div class="d-flex flex-column flex-md-row justify-content-between mb-5">
-                        <div class="flex-grow-1">
-                            
-                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/HICSS.pdf" target="_blank"> Adaptive Cyber Deception: Cognitively Informed Signaling for Cyber Defense </a></div>
-                            <div>Edward A. Cranford, Palvi Aggarwal, Cleotilde Gonzalez, Sarah Cooney, Milind Tambe, Christian Lebiere</div>
-							<p>Proceedings of the 53rd Hawaii International Conference on System Sciences, Maui, HI</p>
-							<p>Best Paper - Digital Government Track </p>
-                        </div>
-                        <div class="flex-shrink-0"><span class="text-primary">January 2020</span></div>
-                    </div>
-				
-				
-				<div class="d-flex flex-column flex-md-row justify-content-between mb-5">
-                        <div class="flex-grow-1">
-                            
-                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/ECML.pdf" target="_blank"> Learning to Signal in the Goldilocks Zone: Improving Adversary Compliance in Security Games </a></div>
-                            <div>Sarah Cooney, Kai Wang, Elizabeth Bondi, Thanh Nguyen, Phebe Vayanos, Hailey Winetrobe, Edward A. Cranford, Cleotilde Gonzalez, Christian Lebiere, Milind Tambe</div>
-							<p>Proceedings of the Joint European Conference on Machine Learning and Knowledge Discovery in Databases, Würzburg, Germany</p>
-                        </div>
-                        <div class="flex-shrink-0"><span class="text-primary">September 2019</span></div>
-                    </div>
-					
-					
-						<div class="d-flex flex-column flex-md-row justify-content-between mb-5">
-                        <div class="flex-grow-1">
-                            
-                            <div class="subheading mb-3"><a class="subheading mb-3" href="assets/soGOOD.pdf" target="_blank"> Mobile Game Theory with Street Gangs </a></div>
-                            <div>Sarah Cooney, Wendy Gomez, Kai Wang, Jorja Leap, P. Jeffrey Brantingham, Milind Tambe</div>
-							<p>ECML-PKDD 4th Workshop on Data Science for Social Good (SoGood), Würzburg, Germany</p>
-                        </div>
-                        <div class="flex-shrink-0"><span class="text-primary">September 2019</span></div>
-                    </div>	
-				
 			</div>	
             </section>
             <hr class="m-0" />
