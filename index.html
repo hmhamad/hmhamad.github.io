@@ -46,8 +46,8 @@
                         
                         <a href="mailto:cooneys@usc.edu">hhamad@usc.edu</a> 
                     </div>
-                    <p class="lead mb-5">I am a PhD candidate studying <a href="https://minghsiehece.usc.edu/" target="_blank">ECE</a> at the <a href="https://www.usc.edu/" target="_blank">University of Southern California (USC)</a> with a B.E. in Computer & Communcations Engineering from <a href="https://www.ndu.edu.lb/home" target="_blank">Notre Dame University-Louaize (NDU)</a> and an M.S. in Communications Engineering form
-                        <a href="https://www.tum.de/en/" target="_blank">Technical University of Munich (TUM)</a>. I am advised by Professor <a href="https://hal.usc.edu/chugg/" target="_blank">Keith Chugg</a>. My research expertise is in Machine Learning in general and efficient Deep Learning in particular. Specifically, I study how Deep Learning can be made more efficient both from the algorithm side and the hardware side. I am also part of the 
+                    <p class="lead mb-5">I am a PhD candidate working on AI at the <a href="https://www.usc.edu/" target="_blank">University of Southern California (USC)</a> with a B.E. in Computer & Communcations Engineering from <a href="https://www.ndu.edu.lb/home" target="_blank">Notre Dame University-Louaize (NDU)</a> and an M.S. in Communications Engineering from the
+                        <a href="https://www.tum.de/en/" target="_blank">Technical University of Munich (TUM)</a>. I am advised by Professor <a href="https://hal.usc.edu/chugg/" target="_blank">Keith Chugg</a>. My research focuses on training efficiency in deep learning. I study how trainig deep learning models can be made more efficient both from the computational side and the data side. Recently I've been interested in applying my methods to NLP problems involving LLMs such as information extraction and conversational AI. I am also part of the 
                         <a href="https://hal.usc.edu/" target="_blank">Hardware Accelerated Learning (HAL)</a> group at USC.</p>
                    <!-- <div class="social-icons">
                         <a class="social-icon" href="#"><i class="fab fa-linkedin-in"></i></a>
@@ -85,31 +85,22 @@
                     <h2 class="mb-5">Current Research</h2>
                     <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <h3 class="mb-0">Training Convolutional Neural Networks using Logarithmic Computations</h3>
-                            Floating point numbers are the go-to format when doing all sorts of computations. They perform very accurate computations while supporting large dynamic range. This comes at the cost of 
-                            increased memory footprint and computational complexity compared to fixed point arithmetic. On the other hand, fixed point arithmetic has much lower precision and range; it performs approximate compuations. 
-                            Using the fact that deep learning is inherently noise-tolerant and doesn't require exact compuations, we show that trainig neural networks using fixed point format and in the logarithmic domain is possible 
-                            at negligible performance degradation but significant area gain.
-                            <p></p>
+                            <h3 class="mb-0">Leveragin Synthetic Data to train LLMs for Named Entity Recognition and Relation Extraction</h3>
+                            <p>Synthetic data has drawn a lot of interest recently with the improved reasoning abilities of large langauge models. This is especially useful on targeted problems where gathering
+                            human-annotated data is expensive or time-consuming. We investigate the use of synthetic data to train LLMs for Named Entity Recognition (NER) and Relation Extraction (RE).
+                            We propose a training paradigm that combines synthetic data with real data while avoiding the missing annotation problem, i.e. when LLMs generate synthetic data with missing annotations.
+                            </p>
                         </div>
                     </div>
                     <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
                         <div class="flex-grow-1">
-                            <h3 class="mb-0">FIRE Dataset: FInancial Relation Extraction Dataset</h3>
-                            <p> We publish a new dataset called FIRE: FInancial Relation Extraction. The dataset is comprised of named entity and relation labels extracted from financial documents (e.g. 10-K and 10-Q) and 
-                                financial news articles (e.g. Yahoo Finance news). The intended task is called Supervised Relation Extraction, a multi-label multi-class classification problem. 
-                                In addition to defining the class labels, we developed detailed annotation guidelines and supervised the development of a labeling tool to speed up the labeling process. The dataset is expected to be released soon.</p>
+                            <h3 class="mb-0">Enhancing the tool-calling ability of LLMs in Task-Oriented Dialogue Systems</h3>
+                            <p> While LLMs have displayed impressive abilities in conversational dialogues, they are limited by their textual input-output nature.
+                                To supplement this, recent research looks at augmenting LLMs with tools (also called function calling) in order to accomplish tasks that interact
+                                with the outside world such as sending email, setting alarms, etc. To improve the function-calling capability of LLMs, we build a diagnostic model that
+                                can detect mistakes the LLM makes when interacting with external tools, and can provide a detailed feedback which the LLM can use to self-correct.</p>
                         </div>
                     </div>
-                    <div class="d-flex flex-column flex-md-row justify-content-between mb-5">
-                        <div class="flex-grow-1">
-                            <h3 class="mb-0">A combined SSL-ACL Paradigm to train Relation Extraction Models on a Low Data Budget</h3>
-                            <p> We investigate the problem of training RE models in the low data regime. To achiever higher performace, the model should be very selective as to which data sample to train on and in what order. To this end, 
-                                we develop a new paradigm which combines Semi-Supervised Learning (SSL) and Actve-Learning (ACL) together with Curriculum Learning. Two RE-specific metrics are proposed, one metric to jugde a sample difficulty and another metric to jugde
-                                the model's confidence in it's prediction. We conduct experiments using state-of-the-art RE models across different RE datasets proposed in the literature.</p>
-                        </div>
-                    </div>
-                   
             </section>
             <hr class="m-0" />
             <!-- Publications-->
