@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Implementing speculative decoding from scratch. Speed up LLM inference 2-3x by using a draft model to propose tokens verified in parallel.">
+    <title>Speculative Decoding from Scratch | Hassan Hamad</title>
+    <link rel="icon" type="image/x-icon" href="../assets/img/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="../css/blog.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="../index.html" class="nav-logo">Hassan Hamad</a>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="../index.html#about">About</a></li>
+                <li><a href="../index.html#news">News</a></li>
+                <li><a href="../index.html#research">Research</a></li>
+                <li><a href="../index.html#blog">Blog</a></li>
+                <li><a href="../assets/HassanHamad_CV.pdf" target="_blank">CV</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <article class="blog-post">
+        <div class="blog-post-container">
+            <a href="../index.html#blog" class="back-link">
+                <i class="fas fa-arrow-left"></i> Back to Homepage
+            </a>
+            
+            <header class="blog-post-header">
+                <span class="coming-soon-tag">Coming Soon</span>
+                <h1>Speculative Decoding from Scratch</h1>
+                <p class="blog-post-subtitle">Speed up inference by guessing tokens — and being right most of the time</p>
+            </header>
+
+            <img src="https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1200&h=500&fit=crop" alt="Speculative Decoding" class="blog-post-hero">
+
+            <div class="blog-post-meta">
+                <a href="https://github.com/hmhamad" target="_blank" class="github-link">
+                    <i class="fab fa-github"></i> View Code on GitHub
+                </a>
+            </div>
+
+            <div class="blog-post-tldr">
+                <h3>TL;DR</h3>
+                <p>Speculative decoding uses a small "draft" model to propose multiple tokens, then verifies them in parallel with the large model. When the draft model guesses correctly (which happens often), you get multiple tokens for the cost of one forward pass. I'll implement this from scratch and show how to achieve 2-3x speedups.</p>
+            </div>
+
+            <div class="blog-post-content coming-soon-content">
+                <div class="coming-soon-notice">
+                    <i class="fas fa-clock"></i>
+                    <h2>Content Coming Soon</h2>
+                    <p>I'm currently working on this post. Check back soon for the full article with detailed explanations, visualizations, and code examples!</p>
+                </div>
+            </div>
+        </div>
+    </article>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2026 Hassan Hamad. All rights reserved.</p>
+            <div class="footer-links">
+                <a href="mailto:hmmhhamad@gmail.com"><i class="fas fa-envelope"></i></a>
+                <a href="https://github.com/hmhamad" target="_blank"><i class="fab fa-github"></i></a>
+                <a href="https://www.linkedin.com/in/hassan-hamad-338a7513b/" target="_blank"><i class="fab fa-linkedin"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../js/scripts.js"></script>
+</body>
+</html>
