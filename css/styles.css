@@ -5,6 +5,7 @@
     --secondary: #64748b;
     --dark: #0f172a;
     --light: #f8fafc;
+    --gray-50: #f9fafb;
     --gray-100: #f1f5f9;
     --gray-200: #e2e8f0;
     --gray-300: #cbd5e1;
@@ -368,12 +369,13 @@ img {
     width: 100%;
     height: 180px;
     overflow: hidden;
+    background: var(--gray-100);
 }
 
 .blog-image img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     transition: var(--transition);
 }
 
