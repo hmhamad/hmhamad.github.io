@@ -52,3 +52,24 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// Quiz reveal functionality
+function revealAnswer(quizId) {
+    const quizCard = document.getElementById(quizId);
+    if (!quizCard) return;
+    
+    const answer = quizCard.querySelector('.quiz-answer');
+    const btn = quizCard.querySelector('.quiz-reveal-btn');
+    
+    if (answer.classList.contains('revealed')) {
+        // Hide answer
+        answer.classList.remove('revealed');
+        quizCard.classList.remove('answered');
+        btn.innerHTML = '<i class="fas fa-lightbulb"></i> Reveal Answer';
+    } else {
+        // Show answer
+        answer.classList.add('revealed');
+        quizCard.classList.add('answered');
+        btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Answer';
+    }
+}

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GVM3KG39NS"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-GVM3KG39NS');
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Understanding the difference between forward and reverse KL divergence in LLM training, and why the direction matters for RLHF and distillation.">
+    <title>Forward vs Reverse KL in LLM Training | Hassan Hamad</title>
+    <link rel="icon" type="image/x-icon" href="../../assets/img/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="../../css/styles.css">
+    <link rel="stylesheet" href="../../css/blog.css">
+    <!-- KaTeX for math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+    <!-- Prism.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="../../index.html" class="nav-logo">Hassan Hamad</a>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="../../index.html#about">About</a></li>
+                <li><a href="../../index.html#news">News</a></li>
+                <li><a href="../../index.html#research">Research</a></li>
+                <li><a href="../../index.html#blog">Blog</a></li>
+                <li><a href="../../assets/HassanHamad_CV.pdf" target="_blank">CV</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <article class="blog-post">
+        <div class="blog-post-container">
+            <a href="../../index.html#blog" class="back-link">
+                <i class="fas fa-arrow-left"></i> Back to Homepage
+            </a>
+
+            <header class="blog-post-header">
+                <h1>Forward vs Reverse KL Divergence: Why the Order Matters</h1>
+                <p class="blog-post-subtitle">Understanding mode-covering vs mode-seeking behavior in ML</p>
+            </header>
+
+            <img src="./kl_image_resized.png" alt="KL Divergence visualization" class="blog-post-hero">
+
+            <div class="blog-post-meta">
+                <a href="https://github.com/hmhamad/KL-Divergence-BlogPost" target="_blank" class="github-link">
+                    <i class="fab fa-github"></i> View Code on GitHub
+                </a>
+            </div>
+
+            <div class="blog-post-tldr">
+                <h3>TL;DR</h3>
+                <p>Forward KL (mode-covering) and reverse KL (mode-seeking) produce fundamentally different behaviors when training models. Forward KL encourages the model to cover all modes of the target distribution, while reverse KL focuses on matching the highest probability regions. This choice has major implications for RLHF, distillation, and fine-tuning.</p>
+            </div>
+
+            <div class="blog-post-content">
+                <p>If you've trained a variational autoencoder, fine-tuned a language model, or implemented policy optimization in reinforcement learning, you've encountered KL divergence. But here's the catch: there are two ways to compute it, and they lead to fundamentally different behaviors.</p>
+
+                <p>Most machine learning practitioners know that KL divergence measures how different two probability distributions are. What's less obvious is that <strong>$D_{KL}(P||Q) \neq D_{KL}(Q||P)$</strong>. This asymmetry determines whether your model will be conservative or risky, whether it covers all modes or focuses on one, and ultimately shapes how your training behaves.</p>
+
+                <p>While this topic has been discussed before, most explanations stay abstract. This post takes a different approach: we'll implement a toy example from scratch, visualize the actual optimization dynamics, and then systematically connect the behavior to diverse ML applications from language model pretraining to RLHF, VAEs, and knowledge distillation. By the end, you'll have both the intuition and the practical context to recognize which KL divergence you're using and why it matters.</p>
+
+                <h2>A Quick Reminder: What is KL Divergence?</h2>
+
+                <p>In simple terms, KL divergence measures how one probability distribution differs from another:</p>
+
+                $$D_{KL}(P||Q) = \sum_x P(x) \log \frac{P(x)}{Q(x)}$$
+
+                <p>Or in the continuous case:</p>
+
+                $$D_{KL}(P||Q) = \int P(x) \log \frac{P(x)}{Q(x)} dx$$
+
+                <p>It's always non-negative, and equals zero only when P and Q are identical. (Can you see why? Hint: Jensen's Inequality.)</p>
+
+                <p>Ok so it is some kind of distance measure to see how different the two distributions are... or is it? You might have already noticed that $D_{KL}(P||Q) \neq D_{KL}(Q||P)$. It's not symmetric!</p>
+
+                <p>In reality, KL measures how inefficient it is to pretend samples come from $Q$ when they really came from $P$. If you know the true distribution $P$, you get zero KL. Negative KL would mean you did better than the true distribution P, but since you can't do better on average → no negative KL.</p>
+
+                <p>So to unwrap this asymmetry, we will do a simple experiment. But before that, let's give more context to the problem. Talking about probability distributions P and Q in abstract terms might be confusing, so let's connect it to something we already know.</p>
+
+                <p>In the context of LLM training, think of it this way:</p>
+                <ul>
+                    <li><strong>P</strong>: the target distribution: could be your data distribution (your corpus), the reference model, or a teacher model</li>
+                    <li><strong>Q</strong>: your model: the one you're actively training and updating, usually an LLM, policy/student/etc.</li>
+                </ul>
+
+                <p>For example:</p>
+                <ul>
+                    <li>In <strong>pretraining</strong> language models, P is the true data distribution and Q is your LLM learning to approximate it</li>
+                    <li>In <strong>RLHF</strong>, P is your pre-trained base model (to prevent drift) and Q is your policy being optimized with RL (both LLMs in this case)</li>
+                    <li>In <strong>knowledge distillation</strong>, P is the teacher model and Q is the student</li>
+                </ul>
+
+                <p>With this convention:</p>
+                <ul>
+                    <li><strong>Forward KL</strong>: $D_{KL}(P||Q) = \mathbb{E}_{x \sim P}\left[\log \frac{P(x)}{Q(x)}\right]$ becomes expectation under the target P</li>
+                    <li><strong>Reverse KL</strong>: $D_{KL}(Q||P) = \mathbb{E}_{x \sim Q}\left[\log \frac{Q(x)}{P(x)}\right]$ becomes expectation under your model Q</li>
+                </ul>
+
+                <h2>The Experiment: Fitting a Unimodal to a Bimodal Distribution</h2>
+
+                <p>Ok so what's the big deal? What happens when you choose one over the other? What do we usually use in practice?</p>
+
+                <p>To answer all these questions, we'll do a simple toy experiment. Consider the following scenario:</p>
+                <ul>
+                    <li><strong>Target P</strong>: A bimodal Gaussian mixture with two equally weighted Gaussians centered at x = -2 and x = +6, each with unit variance</li>
+                    <li><strong>Model Q</strong>: A single Gaussian with parameters $\mu$ (mean) and $\sigma$ (standard deviation) that we'll optimize</li>
+                </ul>
+
+                <p>This setup mirrors real ML problems: your data (or reference/teacher model) has multiple modes, but your model has limited capacity. How does the choice of KL divergence affect what Q learns?</p>
+
+                <h3>Setting Up the Distributions</h3>
+
+                <p>First, let's define an abstract class for a probability distribution. We want it to have two methods:</p>
+                <ul>
+                    <li><code>sample</code>: Since we have expectations, we will need to do Monte Carlo estimation, i.e., to generate random samples from the distribution</li>
+                    <li><code>log_prob</code>: This method computes the log-probability of a given input under the distribution, simply to compute the $\log P(x)$ and $\log Q(x)$ that appear in the equations above.</li>
+                </ul>
+
+<pre><code class="language-python">class Distribution(ABC):
+    """
+    Abstract base class for probability distributions.
+    All distributions must implement sample() and log_prob().
+    """
+    
+    @abstractmethod
+    def sample(self, n_samples):
+        """Draw n_samples from the distribution."""
+        pass
+    
+    @abstractmethod
+    def log_prob(self, x):
+        """Compute log probability density at x."""
+        pass</code></pre>
+
+                <p>Next, let's define a simple 1-D Gaussian Distribution. Here's the definition:</p>
+
+                $$x \sim \mathcal{N}(\mu, \sigma^2), \quad f(x) = \frac{1}{\sigma\sqrt{2\pi}} \exp\!\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)$$
+
+                <p>where $\mu$ is the mean and $\sigma$ is the standard deviation. Now let's implement the two methods:</p>
+
+                <p><strong><code>sample</code></strong>: We could use <code>torch.normal()</code>, but there's an issue. When optimizing $\mu$ and $\sigma$, direct sampling breaks differentiability. To fix this, we use the <strong>reparameterization trick</strong>:</p>
+
+                $$x = \mu + \sigma \,\epsilon, \qquad \epsilon \sim \mathcal{N}(0, 1)$$
+
+                <p>Now the randomness comes solely from $\epsilon$, which is independent of the learnable parameters.</p>
+
+                <p><strong><code>log_prob</code></strong>: Starting from the Gaussian density:</p>
+
+                $$\log f(x) = -\frac{1}{2}\log(2\pi) - \log \sigma - \frac{(x-\mu)^2}{2\sigma^2}$$
+
+<pre><code class="language-python">class GaussianDistribution(Distribution):
+    """Gaussian Distribution for gradient-based optimization."""
+    
+    def __init__(self, mu, sigma):
+        self.mu = torch.as_tensor(mu, dtype=torch.float32).requires_grad_(True)
+        self.sigma = torch.as_tensor(sigma, dtype=torch.float32).requires_grad_(True)
+    
+    def sample(self, n_samples):
+        """Reparameterization trick: x = mu + sigma * eps"""
+        eps = torch.randn(n_samples)
+        return self.mu + self.sigma * eps
+    
+    def log_prob(self, x):
+        """Compute log P(x) for torch tensors."""
+        return -0.5 * torch.log(2 * torch.pi * self.sigma**2) - 0.5 * (x - self.mu)**2 / self.sigma**2</code></pre>
+
+                <p>Now let's define our target distribution P(x), a <strong>mixture of two Gaussians</strong>:</p>
+
+                $$P(x) = \sum_{k=1}^{K} \pi_k \, \mathcal{N}(x \mid \mu_k, \sigma_k^2), \qquad \text{with } \sum_{k=1}^{K} \pi_k = 1$$
+
+                <p><strong><code>sample</code></strong>: Drawing from a mixture follows the definition directly:</p>
+                <ol>
+                    <li>Sample a discrete component index $z \sim \mathrm{Categorical}(\pi_1,\ldots,\pi_K)$</li>
+                    <li>Sample from the chosen Gaussian component $x \sim \mathcal{N}(\mu_z, \sigma_z^2)$</li>
+                </ol>
+
+                <p><strong><code>log_prob</code></strong>: Computing $\log P(x)$ requires care. For a mixture:</p>
+
+                $$\log \left( \sum_{k} \pi_k p_k(x) \right) \neq \sum_{k} \pi_k \log p_k(x)$$
+
+                <p>We need a numerically stable log-sum-exp formulation:</p>
+
+                $$\log \sum_{k=1}^{K} \exp(a_k) = m + \log \sum_{k=1}^{K} \exp(a_k - m), \qquad m = \max_k a_k$$
+
+<pre><code class="language-python">class GaussianMixtureDistribution(Distribution):
+    def __init__(self, means, sigmas, weights):
+        self.means = torch.tensor(means, dtype=torch.float32)
+        self.sigmas = torch.tensor(sigmas, dtype=torch.float32)
+        self.weights = torch.tensor(weights, dtype=torch.float32)
+        self.weights = self.weights / self.weights.sum()  # normalize
+        self.n_components = len(means)
+    
+    def sample(self, n_samples):
+        """Sample from the mixture"""
+        components = np.random.choice(
+            self.n_components, 
+            size=n_samples, 
+            p=self.weights.numpy()
+        )
+        samples = np.random.normal(
+            self.means.numpy()[components],
+            self.sigmas.numpy()[components]
+        )
+        return torch.tensor(samples, dtype=torch.float32)
+    
+    def log_prob(self, x):
+        """Compute log P(x) using log-sum-exp trick"""
+        log_probs = []
+        for i in range(self.n_components):
+            log_gaussian = -0.5 * torch.log(2 * torch.pi * self.sigmas[i]**2) \
+                          - 0.5 * (x - self.means[i])**2 / self.sigmas[i]**2
+            log_probs.append(torch.log(self.weights[i]) + log_gaussian)
+        
+        log_probs = torch.stack(log_probs)
+        max_log = torch.max(log_probs, dim=0)[0]
+        return max_log + torch.log(torch.sum(torch.exp(log_probs - max_log), dim=0))</code></pre>
+
+                <h3>Computing KL</h3>
+
+                <p>Forward KL is defined as:</p>
+
+                $$D_{KL}(P||Q) = \mathbb{E}_{x \sim P}[\log P(x) - \log Q(x)]$$
+
+                <p>The key detail: <strong>samples are drawn from P</strong>.</p>
+
+<pre><code class="language-python">def forward_kl(p, q, n_samples=10000):
+    """
+    Compute KL(P||Q) = E_P[log P(x) - log Q(x)]
+    Sample from P, evaluate both P and Q.
+    """
+    x = p.sample(n_samples)
+    return torch.mean(p.log_prob(x) - q.log_prob(x))</code></pre>
+
+                <p>Reverse KL swaps the roles:</p>
+
+                $$D_{KL}(Q||P) = \mathbb{E}_{x \sim Q}[\log Q(x) - \log P(x)]$$
+
+                <p>Now the expectation is taken under Q, i.e. we sample from the model itself.</p>
+
+<pre><code class="language-python">def reverse_kl(p, q, n_samples=10000):
+    """
+    Compute KL(Q||P) = E_Q[log Q(x) - log P(x)]
+    Sample from Q, evaluate both Q and P.
+    """
+    x = q.sample(n_samples)
+    return torch.mean(q.log_prob(x) - p.log_prob(x))</code></pre>
+
+                <h3>Forward KL: Minimizing KL(P||Q)</h3>
+
+                <p>The $\log P(x)$ term is constant with respect to Q's parameters, so we can use the loss as $-\mathbb{E}_{x \sim P}[\log Q(x)]$:</p>
+
+<pre><code class="language-python">def optimize_forward_kl(p, mu_init=0.0, sigma_init=1.0, lr=0.1, n_steps=1000, n_samples=1000):
+    """Optimize Q to minimize KL(P||Q) using gradient descent."""
+    mu = torch.tensor(mu_init, requires_grad=True)
+    sigma = torch.tensor(sigma_init, requires_grad=True)
+    
+    for step in range(n_steps):
+        q = GaussianDistribution(mu, sigma)
+        loss = forward_kl(p, q, n_samples)
+        loss.backward()
+        
+        with torch.no_grad():
+            mu -= lr * mu.grad
+            sigma -= lr * sigma.grad
+            mu.grad.zero_()
+            sigma.grad.zero_()
+    
+    return mu.item(), sigma.item()</code></pre>
+
+                <p><strong>Output:</strong></p>
+<pre><code>Final parameters: mu = 1.9926, sigma = 4.1189</code></pre>
+
+                <img src="./forward_kl_optimization.png" alt="Forward KL optimization showing mode-covering behavior" class="large">
+
+                <p><strong>What happened?</strong> Recall our target P has modes at x = -2 and x = +6. Q learned to center itself at μ ≈ 2 (between the two modes) with a large σ ≈ 4.1 that <strong>covers both peaks</strong>.</p>
+
+                <p><strong>Why?</strong> We're sampling from P and maximizing $\log Q(x)$. When x comes from either mode, Q must assign reasonable probability to both regions. If Q focused on just one mode, it would assign near-zero probability to samples from the other, leading to $\log Q(x) \rightarrow -\infty$.</p>
+
+                <p>This is <strong>mode-covering behavior</strong>: forward KL penalizes Q heavily when Q(x) ≈ 0 but P(x) > 0.</p>
+
+                <h3>Reverse KL: Minimizing KL(Q||P)</h3>
+
+<pre><code class="language-python">def optimize_reverse_kl(p, mu_init=0.0, sigma_init=1.0, lr=0.01, n_steps=1000, n_samples=1000):
+    """Optimize Q to minimize KL(Q||P) using gradient descent."""
+    mu = torch.tensor(mu_init, requires_grad=True)
+    sigma = torch.tensor(sigma_init, requires_grad=True)
+    
+    for step in range(n_steps):
+        q = GaussianDistribution(mu, sigma)
+        loss = reverse_kl(p, q, n_samples)
+        loss.backward()
+        
+        with torch.no_grad():
+            mu -= lr * mu.grad
+            sigma -= lr * sigma.grad
+            mu.grad.zero_()
+            sigma.grad.zero_()
+    
+    return mu.item(), sigma.item()</code></pre>
+
+                <p><strong>Output:</strong></p>
+<pre><code>Final parameters: mu = -2.0000, sigma = 1.0037</code></pre>
+
+                <img src="./reverse_kl_optimization.png" alt="Reverse KL optimization showing mode-seeking behavior" class="large">
+
+                <p><strong>Completely different!</strong> Q collapsed onto the left mode: $\mu ≈ -2$, $\sigma ≈ 1$. It ignored the right mode entirely.</p>
+
+                <p><strong>Why?</strong> We're sampling from Q and evaluating $\log P(x)$. If Q puts mass in the low-probability region between modes (where P(x) ≈ 0), those samples get $\log P(x) \rightarrow -\infty$. The solution: concentrate Q's mass where P is high, pick one mode and commit.</p>
+
+                <p>This is <strong>mode-seeking behavior</strong>: reverse KL penalizes Q when Q(x) > 0 but P(x) ≈ 0.</p>
+
+                <p><strong>Note:</strong> We initialized μ = 0 (closer to the left mode) to break symmetry. Starting at $\mu = 2$ could converge to either mode.</p>
+
+                <div class="quiz-section">
+                    <h2>Quiz Time!</h2>
+                    <p>Let's apply what we learned to real ML problems.</p>
+
+                    <!-- Quiz 1 -->
+                    <div class="quiz-card" id="quiz1">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz 1</span>
+                            <h3>Pre-training / SFT</h3>
+                        </div>
+                        <p class="quiz-question">You're training a gigantic LLM $Q_\theta(x)$ on the internet. The data distribution, call it $P_{data}$, is messy, multimodal, long-tailed, and full of weird edge cases. Which KL direction do you choose?</p>
+                        <div class="quiz-options">
+                            <div class="quiz-option correct" data-option="A">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">Forward KL: $D_{KL}(P_{data}||Q_\theta)$ "Cover everything that actually shows up."</span>
+                            </div>
+                            <div class="quiz-option" data-option="B">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">Reverse KL: $D_{KL}(Q_\theta||P_{data})$"Focus on the most likely stuff, ignore the rest."</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="revealAnswer('quiz1')">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: A</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p>The standard training objective is negative log-likelihood:</p>
+                                $$\mathcal{L} = \mathbb{E}_{x \sim P_{data}}[-\log Q_\theta(x)]$$
+                                <p>We can show that:</p>
+                                $$D_{KL}(P_{data} || Q_\theta) = \text{constant} + \mathbb{E}_{x \sim P_{data}}[-\log Q_\theta(x)]$$
+                                <p>So <strong>SFT/pre-training is literally forward KL</strong>. This is mode-covering: samples come from the data, and any region where data appears must be assigned probability. Assigning near-zero probability to a real mode produces $\log Q_\theta(x) \rightarrow -\infty$, a huge penalty.</p>
+                                <p><strong>But why?</strong> This aligns with pre-training goals: missing a real pattern is very bad, overgeneralizing is tolerated and hallucinating extra modes is less harmful than missing real ones. In other words: <strong>Recall > precision</strong></p>
+                                <p><strong>Bonus:</strong> Reverse KL requires sampling from $Q_\theta$. Early in training, $Q_\theta$ is noise ! Even worse, reverse KL requires we evaluate $\log P_{\text{data}}(x)$ for arbitrary samples. We don't have an actual data model, only samples, so we can't calculate $P_{\text{data}}(x)$ ! So forward KL is the only practical choice.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quiz 2 -->
+                    <div class="quiz-card" id="quiz2">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz 2</span>
+                            <h3>RLHF Objective</h3>
+                        </div>
+                        <p class="quiz-question">You have a reward model R(x) and you're optimizing:</p>
+                        $$\max_\theta\; \mathbb{E}_{x \sim Q_\theta}[R(x)]$$
+                        <p class="quiz-question">Which KL direction does this resemble?</p>
+                        <div class="quiz-options">
+                            <div class="quiz-option" data-option="A">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">Forward KL: Mode-covering behavior</span>
+                            </div>
+                            <div class="quiz-option correct" data-option="B">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">Reverse KL: Mode-seeking behavior</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="revealAnswer('quiz2')">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: B</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p>We sample from $Q_\theta$ and evaluate those samples. This is exactly the structure of reverse KL. If we define $P^*(x) \propto \exp(R(x)/\beta)$:</p>
+                                $$D_{KL}(Q_\theta || P^*) = -\frac{1}{\beta}\mathbb{E}_{x \sim Q_\theta}[R(x)] + \text{constant}$$
+                                <p>So <strong>maximizing expected reward ≈ minimizing reverse KL</strong>. This is mode-seeking toward high-reward outputs.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quiz 3 -->
+                    <div class="quiz-card" id="quiz3">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz 3</span>
+                            <h3>RLHF Regularization</h3>
+                        </div>
+                        <p class="quiz-question">In practice, we add a KL penalty to keep the policy close to a reference model:</p>
+                        $$\max_\theta\; \mathbb{E}_{x \sim Q_\theta}\big[R(x) - \beta \, D_{KL}(Q_\theta \| Q_{\text{ref}})\big]$$
+                        <p class="quiz-question">Which direction should this KL penalty use?</p>
+                        <div class="quiz-options">
+                            <div class="quiz-option" data-option="A">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">Forward KL: $D_{KL}(Q_{\text{ref}} || Q_\theta)$</span>
+                            </div>
+                            <div class="quiz-option correct" data-option="B">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">Reverse KL: $D_{KL}(Q_\theta || Q_{\text{ref}})$</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="revealAnswer('quiz3')">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: B</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p>The penalty $D_{KL}(Q_\theta || Q_{\text{ref}})$ penalizes the policy when it assigns probability to outputs that the reference model doesn't support. This prevents inventing strange new modes. You can prune modes (focus on high-reward ones) but you can't invent new ones out of thin air.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2>More Examples</h2>
+
+                <p>There are many more interesting examples: variational autoencoders, knowledge distillation, etc. Sometimes both forward and reverse KL may be viable depending on the data and desired outcome.</p>
+
+                <h3>Machine Unlearning via Distillation</h3>
+
+                <p>A nice example: a recent paper on machine unlearning <a href="#ref-1">[1]</a> wants the model to unlearn sensitive facts while remaining useful. The authors construct a teacher distribution that downweights tokens associated with data to be forgotten, then distill into a student.</p>
+
+                <p>The key detail: using <strong>reverse KL</strong> in the distillation loss more strongly penalizes the student for assigning high probability to forbidden tokens, leading to better removal of unwanted information without degrading general performance!</p>
+
+                <h2>References</h2>
+                <ol class="references">
+                    <li id="ref-1">Wang et al. "Balancing Forget Quality and Model Utility: A Reverse KL-Divergence Knowledge Distillation Approach for Better Unlearning in LLMs." <em>NAACL 2025</em>. <a href="https://aclanthology.org/2025.naacl-long.60/" target="_blank">Link</a></li>
+                </ol>
+
+            </div>
+        </div>
+    </article>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2026 Hassan Hamad. All rights reserved.</p>
+            <div class="footer-links">
+                <a href="mailto:hmmhhamad@gmail.com"><i class="fas fa-envelope"></i></a>
+                <a href="https://github.com/hmhamad" target="_blank"><i class="fab fa-github"></i></a>
+                <a href="https://www.linkedin.com/in/hassan-hamad-338a7513b/" target="_blank"><i class="fab fa-linkedin"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../../js/scripts.js"></script>
+</body>
+</html>
