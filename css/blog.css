@@ -213,18 +213,45 @@
 }
 
 .blog-post-content pre {
-    background: var(--gray-800);
-    color: var(--gray-100);
+    position: relative;
+    background: var(--gray-100);
+    color: var(--gray-800);
     padding: 24px;
+    padding-right: 48px;
     border-radius: var(--radius-sm);
     overflow-x: auto;
     margin: 24px 0;
+    border: 1px solid var(--gray-200);
 }
 
 .blog-post-content pre code {
     background: none;
     padding: 0;
     color: inherit;
+}
+
+.code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--gray-200);
+    border: none;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease, background 0.2s ease;
+    color: var(--gray-600);
+    font-size: 0.85rem;
+}
+
+.blog-post-content pre:hover .code-copy-btn {
+    opacity: 1;
+}
+
+.code-copy-btn:hover {
+    background: var(--gray-300);
+    color: var(--gray-700);
 }
 
 .blog-post-content img {
@@ -485,3 +512,179 @@
 .blog-post-content .references a {
     color: var(--primary);
 }
+
+/* ===== Table of Contents Sidebar (Left) ===== */
+.toc-sidebar {
+    position: fixed;
+    top: 120px;
+    left: calc((100vw - 800px) / 2 - 220px);
+    width: 180px;
+    max-height: calc(100vh - 160px);
+    overflow-y: auto;
+    padding: 16px;
+    font-size: 0.8rem;
+    z-index: 100;
+}
+
+.toc-title {
+    font-weight: 600;
+    color: var(--dark);
+    margin-bottom: 12px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.toc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.toc-list li {
+    margin-bottom: 8px;
+}
+
+.toc-list ul {
+    list-style: none;
+    padding-left: 12px;
+    margin-top: 8px;
+}
+
+.toc-link {
+    color: var(--gray-500);
+    text-decoration: none;
+    transition: color 0.2s ease;
+    display: block;
+    line-height: 1.4;
+}
+
+.toc-link:hover {
+    color: var(--primary);
+}
+
+.toc-link.active {
+    color: var(--primary);
+    font-weight: 500;
+}
+
+/* ===== Sidenotes (Right) ===== */
+.sidenote {
+    position: absolute;
+    right: -220px;
+    width: 200px;
+    font-size: 0.8rem;
+    color: var(--gray-600);
+    line-height: 1.5;
+    padding: 12px;
+    background: var(--gray-50);
+    border-left: 2px solid var(--gray-300);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.sidenote-ref {
+    font-size: 0.75rem;
+    color: var(--primary);
+    font-weight: 600;
+    cursor: help;
+    vertical-align: super;
+}
+
+.sidenote a {
+    color: var(--primary);
+    text-decoration: underline;
+}
+
+.sidenote-number {
+    font-weight: 700;
+    color: var(--primary);
+    margin-right: 4px;
+}
+
+/* Container needs relative positioning for sidenotes */
+.blog-post-content {
+    position: relative;
+}
+
+/* Hide sidebars on smaller screens */
+@media (max-width: 1300px) {
+    .toc-sidebar {
+        display: none;
+    }
+    .sidenote {
+        position: relative;
+        right: 0;
+        width: 100%;
+        margin: 16px 0;
+        border-left: 3px solid var(--primary);
+        background: rgba(37, 99, 235, 0.05);
+    }
+}
+
+/* ===== Citation Section ===== */
+.citation-section {
+    margin-top: 48px;
+}
+
+.citation-section h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--dark);
+    margin-bottom: 20px;
+    margin-top: 40px;
+}
+
+.citation-section p {
+    margin-bottom: 12px;
+    font-size: 0.95rem;
+    color: var(--gray-700);
+}
+
+.citation-box {
+    position: relative;
+    background: var(--gray-100) !important;
+    color: var(--gray-700) !important;
+    padding: 16px;
+    padding-right: 48px;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    margin: 0 0 16px 0;
+    border: 1px solid var(--gray-200);
+    overflow: visible;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.citation-box code {
+    background: none !important;
+    padding: 0;
+    color: inherit !important;
+    font-family: 'SF Mono', Monaco, monospace;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.citation-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--gray-200);
+    border: none;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease, background 0.2s ease;
+    color: var(--gray-600);
+    font-size: 0.85rem;
+}
+
+.citation-box:hover .citation-copy-btn {
+    opacity: 1;
+}
+
+.citation-copy-btn:hover {
+    background: var(--gray-300);
+    color: var(--gray-700);
+}
+
