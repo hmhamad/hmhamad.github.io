@@ -706,7 +706,7 @@ Final parameters: mu = -2.0000, sigma = 1.0037</code></pre>
 
                 <img src="./deepseek_kl.png" alt="DeepSeek R1 KL formula">
 
-                <p style="position: relative;">While this might seem weird, remember that in practice we always estimate KL using Monte Carlo sampling because computing the exact expectation is intractable.<span class="sidenote-ref"></span> The textbook discrete KL formula then becomes just one of many possible Monte Carlo estimators, and a naive one at that!</p>
+                <p style="position: relative;">While this might seem weird, remember that in practice we always estimate KL using Monte Carlo sampling because computing the exact expectation is intractable. The textbook discrete KL formula then becomes just one of many possible Monte Carlo estimators, and a naive one at that!</p>
 
                 <p>This goes back to the age-old question of estimators: the <strong>bias-variance trade-off</strong>. The naive Monte Carlo estimator $\frac{1}{N}\sum_i \log \frac{P(x_i)}{Q(x_i)}$ can have high variance. A single sample where $Q(x)$ is very small (but $P(x)$ is not) can dominate the entire estimate and cause extreme variance.</p>
 
