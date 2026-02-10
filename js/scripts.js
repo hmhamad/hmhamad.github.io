@@ -75,6 +75,26 @@ function revealAnswer(quizId) {
     }
 }
 
+// Toggle quiz answer (alternative function that takes button element)
+function toggleQuizAnswer(btn) {
+    const quizCard = btn.closest('.quiz-card');
+    if (!quizCard) return;
+    
+    const answer = quizCard.querySelector('.quiz-answer');
+    
+    if (answer.classList.contains('revealed')) {
+        // Hide answer
+        answer.classList.remove('revealed');
+        quizCard.classList.remove('answered');
+        btn.innerHTML = '<i class="fas fa-lightbulb"></i> Reveal Answer';
+    } else {
+        // Show answer
+        answer.classList.add('revealed');
+        quizCard.classList.add('answered');
+        btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Answer';
+    }
+}
+
 // Table of Contents scroll spy
 document.addEventListener('DOMContentLoaded', function() {
     const tocLinks = document.querySelectorAll('.toc-link');
