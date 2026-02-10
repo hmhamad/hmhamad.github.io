@@ -372,8 +372,13 @@
     background: var(--gray-50);
     border: 2px solid var(--gray-200);
     border-radius: var(--radius-sm);
-    cursor: default;
+    cursor: pointer;
     transition: var(--transition);
+}
+
+.quiz-option:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
 }
 
 .quiz-option-letter {
@@ -476,11 +481,54 @@
 .quiz-card.answered .quiz-option.correct {
     background: rgba(16, 185, 129, 0.1);
     border-color: #10b981;
+    position: relative;
 }
 
 .quiz-card.answered .quiz-option.correct .quiz-option-letter {
     background: #10b981;
     color: var(--white);
+}
+
+/* Correct answer feedback label - only show when user clicked correct */
+.quiz-card.answered-correct .quiz-option.correct::after {
+    content: '✓ Correct!';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #10b981;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+/* Highlighted wrong option when selected */
+.quiz-card.answered .quiz-option.selected-wrong {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: #ef4444;
+    position: relative;
+}
+
+.quiz-card.answered .quiz-option.selected-wrong .quiz-option-letter {
+    background: #ef4444;
+    color: var(--white);
+}
+
+/* Wrong answer feedback label */
+.quiz-card.answered .quiz-option.selected-wrong::after {
+    content: '✗ Not quite';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #ef4444;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
 }
 
 @media (max-width: 768px) {

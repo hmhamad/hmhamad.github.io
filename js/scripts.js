@@ -61,12 +61,16 @@ function revealAnswer(quizId) {
     
     const answer = quizCard.querySelector('.quiz-answer');
     const btn = quizCard.querySelector('.quiz-reveal-btn');
+    const options = quizCard.querySelectorAll('.quiz-option');
     
     if (answer.classList.contains('revealed')) {
-        // Hide answer
+        // Hide answer - reset everything
         answer.classList.remove('revealed');
-        quizCard.classList.remove('answered');
+        quizCard.classList.remove('answered', 'answered-correct', 'answered-wrong');
         btn.innerHTML = '<i class="fas fa-lightbulb"></i> Reveal Answer';
+        options.forEach(opt => {
+            opt.classList.remove('selected-wrong');
+        });
     } else {
         // Show answer
         answer.classList.add('revealed');
@@ -75,25 +79,63 @@ function revealAnswer(quizId) {
     }
 }
 
-// Toggle quiz answer (alternative function that takes button element)
-function toggleQuizAnswer(btn) {
+// Toggle quiz answer (alternative function that takes button element or clicked option)
+function toggleQuizAnswer(btn, clickedOption = null) {
     const quizCard = btn.closest('.quiz-card');
     if (!quizCard) return;
     
     const answer = quizCard.querySelector('.quiz-answer');
+    const revealBtn = quizCard.querySelector('.quiz-reveal-btn');
+    const options = quizCard.querySelectorAll('.quiz-option');
+    
+    // Always reset state classes first
+    quizCard.classList.remove('answered-correct', 'answered-wrong');
+    options.forEach(opt => {
+        opt.classList.remove('selected-wrong');
+    });
     
     if (answer.classList.contains('revealed')) {
         // Hide answer
         answer.classList.remove('revealed');
         quizCard.classList.remove('answered');
-        btn.innerHTML = '<i class="fas fa-lightbulb"></i> Reveal Answer';
+        revealBtn.innerHTML = '<i class="fas fa-lightbulb"></i> Reveal Answer';
     } else {
         // Show answer
         answer.classList.add('revealed');
         quizCard.classList.add('answered');
-        btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Answer';
+        revealBtn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Answer';
+        
+        // If an option was clicked, check if it's correct or wrong
+        if (clickedOption) {
+            if (clickedOption.classList.contains('correct')) {
+                // User clicked correct answer
+                quizCard.classList.add('answered-correct');
+            } else {
+                // User clicked wrong answer
+                quizCard.classList.add('answered-wrong');
+                clickedOption.classList.add('selected-wrong');
+            }
+        }
     }
 }
+
+// Add click handlers to quiz options
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.quiz-option').forEach(option => {
+        option.addEventListener('click', function() {
+            const quizCard = this.closest('.quiz-card');
+            const answer = quizCard.querySelector('.quiz-answer');
+            
+            // Only process if not already revealed
+            if (!answer.classList.contains('revealed')) {
+                const revealBtn = quizCard.querySelector('.quiz-reveal-btn');
+                if (revealBtn) {
+                    toggleQuizAnswer(revealBtn, this);
+                }
+            }
+        });
+    });
+});
 
 // Table of Contents scroll spy
 document.addEventListener('DOMContentLoaded', function() {
