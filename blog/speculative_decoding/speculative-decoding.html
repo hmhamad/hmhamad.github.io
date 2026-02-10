@@ -73,7 +73,7 @@
                 <li><a href="#proof" class="toc-link">Why It Works: A Proof</a>
                     <ul>
                         <li><a href="#single-token" class="toc-link">Single Token Example</a></li>
-                        <li><a href="#multi-token" class="toc-link">Multi-Token Block</a></li>
+                        <!-- <li><a href="#multi-token" class="toc-link">Multi-Token Block</a></li> -->
                     </ul>
                 </li>
                 <li><a href="#distillation" class="toc-link">Draft Model Distillation</a></li>
@@ -722,7 +722,7 @@ Speedup vs target-only: 2.12×</code></pre>
                     <p>The draft model "offers" tokens; the target model either accepts them at the right rate or, when it rejects, samples from the leftover probability mass so the final outcome matches the target.</p>
                 </div>
 
-                <h3 id="multi-token">Multi-Token Block Example</h3>
+                <!-- <h3 id="multi-token">Multi-Token Block Example</h3>
 
                 <p>In practice, we draft multiple tokens at once. Here's how rejection works with a 4-token block.</p>
 
@@ -779,15 +779,15 @@ Speedup vs target-only: 2.12×</code></pre>
 
                 <p><strong>Final output: B A A</strong></p>
 
-                <p>The draft's $t_4$ is gone because it was generated under a prefix that no longer applies. Next round, the draft proposes a new block starting from "B A A".</p>
+                <p>The draft's $t_4$ is gone because it was generated under a prefix that no longer applies. Next round, the draft proposes a new block starting from "B A A".</p> -->
 
                 <h2 id="distillation">Bonus: Draft Model Distillation</h2>
 
                 <p style="position: relative;">How do we get a high acceptance rate? The draft model needs to match the target model's distribution as closely as possible. One approach: use <strong>knowledge distillation</strong> to train the draft specifically to mimic the target.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>Zhou et al. "DistillSpec: Improving Speculative Decoding via Knowledge Distillation." <em>ICLR 2024</em>. <a href="https://arxiv.org/abs/2310.08461" target="_blank">Paper</a></span></p>
 
-                <p style="position: relative;">Here's the catch: standard distillation using forward KL doesn't work well.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>For a deeper dive into forward vs reverse KL, check out my <a href="../forward-vs-reverse-kl/forward-vs-reverse-kl.html">blog post on KL divergence</a>.</span> Forward KL makes the student "cover" all modes of the teacher. But a small draft model doesn't have the capacity for that. It ends up spreading probability too thin, and during generation, you risk sampling bad tokens that compound into errors.</p>
+                <p style="position: relative;">Here's the catch: standard distillation using forward KL doesn't work well.<span class="sidenote-ref"></span><span class="sidenote" style="top: 80px;"><span class="sidenote-number"></span>For a deeper dive into forward vs reverse KL, check out my <a href="../forward-vs-reverse-kl/forward-vs-reverse-kl.html">blog post on KL divergence</a>.</span> Forward KL makes the student "cover" all modes of the teacher. But a small draft model doesn't have the capacity for that. It ends up spreading probability too thin, and during generation, you risk sampling bad tokens that compound into errors.</p>
 
-                <p style="position: relative;">The solution: use <strong>reverse KL</strong> or a mixture (like Jensen-Shannon divergence). Reverse KL makes the draft model focus on what it can do well, rather than trying to cover everything. The DistillSpec paper<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>See also Phil Kravtsov's excellent <a href="https://philkrav.com/posts/speculative/" target="_blank">blog post</a> for more details on distillation recipes.</span> finds that distilled drafts give additional speedups, and training with reverse KL or JSD on draft-generated outputs works best.</p>
+                <p style="position: relative;">The solution: use <strong>reverse KL</strong> or a mixture (like Jensen-Shannon divergence). Reverse KL makes the draft model focus on what it can do well, rather than trying to cover everything. The DistillSpec paper<span class="sidenote-ref"></span><span class="sidenote" style="top: 160px;"><span class="sidenote-number"></span>See also Phil Kravtsov's excellent <a href="https://philkrav.com/posts/speculative/" target="_blank">blog post</a> for more details on distillation recipes.</span> finds that distilled drafts give additional speedups, and training with reverse KL or JSD on draft-generated outputs works best.</p>
 
                 <!-- Quiz Section -->
                 <div class="quiz-section">

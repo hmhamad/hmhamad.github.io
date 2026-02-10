@@ -216,18 +216,28 @@
     position: relative;
     background: var(--gray-100);
     color: var(--gray-800);
-    padding: 24px;
+    padding: 14px;
     padding-right: 48px;
     border-radius: var(--radius-sm);
     overflow-x: auto;
     margin: 24px 0;
     border: 1px solid var(--gray-200);
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+/* Override Prism.js styles for syntax-highlighted code */
+.blog-post-content pre[class*="language-"],
+.blog-post-content code[class*="language-"] {
+    font-size: 0.8rem !important;
+    line-height: 1.45 !important;
 }
 
 .blog-post-content pre code {
     background: none;
     padding: 0;
     color: inherit;
+    font-size: inherit;
 }
 
 .code-copy-btn {
@@ -628,6 +638,13 @@
     background: var(--gray-50);
     border-left: 2px solid var(--gray-300);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    z-index: 10;
+}
+
+/* Ensure paragraphs with sidenotes don't clip them */
+p[style*="position: relative"] {
+    overflow: visible;
+    min-height: 1em;
 }
 
 .sidenote-ref {
