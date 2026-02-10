@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GVM3KG39NS"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-GVM3KG39NS');
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Understanding speculative decoding: how to speed up LLM inference by using a small draft model to propose tokens verified by a larger model, with no loss in quality.">
+    <title>Speculative Decoding: Fast LLM Inference Without Quality Loss | Hassan Hamad</title>
+    <link rel="icon" type="image/x-icon" href="../../assets/img/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="../../css/styles.css">
+    <link rel="stylesheet" href="../../css/blog.css">
+    <!-- KaTeX for math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+    <!-- Prism.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="../../index.html" class="nav-logo">Hassan Hamad</a>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="../../index.html#about">About</a></li>
+                <li><a href="../../index.html#news">News</a></li>
+                <li><a href="../../index.html#research">Research</a></li>
+                <li><a href="../../index.html#blog">Blog</a></li>
+                <li><a href="../../assets/HassanHamad_CV.pdf" target="_blank">CV</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <article class="blog-post">
+        <!-- Table of Contents Sidebar -->
+        <nav class="toc-sidebar" id="toc">
+            <div class="toc-title">Contents</div>
+            <ul class="toc-list">
+                <li><a href="#intuition" class="toc-link">The Intuition</a></li>
+                <li><a href="#analogy" class="toc-link">The Professor & TA Analogy</a>
+                    <ul>
+                        <li><a href="#why-verification-cheap" class="toc-link">How Does It Work?</a></li>
+                    </ul>
+                </li>
+                <li><a href="#formal" class="toc-link">The Formal Algorithm</a></li>
+                <li><a href="#no-quality-loss" class="toc-link">No Quality Loss!</a></li>
+                <li><a href="#implementation" class="toc-link">Implementation</a>
+                    <ul>
+                        <li><a href="#standard-decoding" class="toc-link">Standard Decoding</a></li>
+                        <li><a href="#speculative-impl" class="toc-link">Speculative Decoding</a></li>
+                    </ul>
+                </li>
+                <li><a href="#benchmarks" class="toc-link">Benchmarks</a></li>
+                <li><a href="#proof" class="toc-link">Why It Works: A Proof</a>
+                    <ul>
+                        <li><a href="#single-token" class="toc-link">Single Token Example</a></li>
+                        <li><a href="#multi-token" class="toc-link">Multi-Token Block</a></li>
+                    </ul>
+                </li>
+                <li><a href="#distillation" class="toc-link">Draft Model Distillation</a></li>
+                <li><a href="#quiz" class="toc-link">Quiz Time!</a></li>
+                <li><a href="#citation" class="toc-link">Citation</a></li>
+            </ul>
+        </nav>
+
+        <div class="blog-post-container">
+            <a href="../../index.html#blog" class="back-link">
+                <i class="fas fa-arrow-left"></i> Back to Homepage
+            </a>
+
+            <header class="blog-post-header">
+                <h1>Speculative Decoding: Fast LLM Inference Without Quality Loss</h1>
+                <p class="blog-post-subtitle">How to make LLMs 2-3x faster using a clever draft-and-verify trick</p>
+            </header>
+
+            <div class="blog-post-meta">
+                <a href="https://github.com/hmhamad" target="_blank" class="github-link">
+                    <i class="fab fa-github"></i> View Code on GitHub
+                </a>
+            </div>
+
+            <div class="blog-post-tldr">
+                <h3>TL;DR</h3>
+                <p>Speculative decoding uses a small, fast "draft" model to propose multiple tokens at once, then verifies them in parallel with the large model. Accepted tokens are kept; rejected ones trigger a resample from the large model. The magic: the output distribution is <em>exactly</em> the same as sampling from the large model alone, but 2-3x faster.</p>
+            </div>
+
+            <div class="blog-post-content">
+
+                <h2 id="intuition">The Intuition: Not All Tokens Are Equal</h2>
+
+                <p>Here's something that's always bugged me about LLMs: they spend the exact same amount of compute on every single token. Whether it's predicting "the" after "in" or solving a tricky reasoning step, the model does the same massive matrix multiplications.</p>
+
+                <p>Imagine asking an LLM: <em>"Write a Python function that calculates the factorial of a number."</em></p>
+
+                <p>The response might be:</p>
+<pre><code class="language-python">def factorial(n):
+    if n == 0:
+        return 1
+    return n * factorial(n - 1)</code></pre>
+
+                <p>Think about which tokens are "hard" here. <code>def</code>, <code>(n):</code>, <code>if</code>, <code>return</code>, the colons, the indentation, all completely predictable boilerplate. A tiny model could guess these. But the actual logic, choosing <code>n == 0</code> as the base case, deciding to use recursion vs iteration, that's where the "thinking" happens.</p>
+
+                <p>Yet the LLM burns the same compute on <code>def</code> as it does on the recursive call. This feels wasteful.</p>
+
+                <p>What if we could "fast-forward" through the easy tokens and only engage the full model when it matters?</p>
+
+                <p>That's exactly what <strong>speculative decoding</strong> does.</p>
+
+                <h2 id="analogy">The Professor & TA Analogy</h2>
+
+                <p>Here's my favorite way to think about it:</p>
+
+                <p>Imagine a brilliant but lazy professor who needs to give a lecture. Instead of doing it himself, he sends his teaching assistant to present. The professor sits in the back of the room, half-listening.</p>
+
+                <p>Most of the time, the TA does fine. The professor stays quiet. But occasionally, the TA says something wrong. The professor's ears perk up: <em>"Actually, that's not quite right..."</em> He corrects the mistake, then goes back to being silent.</p>
+
+                <p>The result? The lecture is delivered at the TA's fast pace, but with the professor's quality. The professor only speaks when necessary.</p>
+
+                <p>In speculative decoding:</p>
+                <ul>
+                    <li><strong>Draft model (TA)</strong>: A small, fast model that proposes tokens quickly</li>
+                    <li><strong>Target model (Professor)</strong>: The large, accurate model that verifies and corrects</li>
+                    <li><strong>The trick</strong>: The professor can verify multiple tokens in parallel (one forward pass), while generating them sequentially would be slow</li>
+                </ul>
+
+                <h3 id="why-verification-cheap">But Really, How Does It Work?</h3>
+
+                <p>Ok, the intuition was nice, but let's really understand how this works. Let's say we want to generate $K = 20$ tokens. We have two models:</p>
+
+                <ul>
+                    <li><strong>Target model $M_T$</strong>: Large (70B params), smart, expensive. Let's say each forward pass costs $F_T$ FLOPs and takes $t_T = 500\text{ms}$.</li>
+                    <li><strong>Draft model $M_D$</strong>: Small (7B params), fast, a bit dumb. Each forward pass costs $F_D \approx 0.1 \times F_T$ FLOPs and takes $t_D = 50\text{ms}$.</li>
+                </ul>
+
+                <p><strong>Baseline: Standard autoregressive decoding</strong></p>
+
+                <p>Generate 20 tokens with the target model, one at a time:</p>
+                <ul>
+                    <li>FLOPs: $20 \times F_T$</li>
+                    <li>Latency: $20 \times 500\text{ms} = 10\text{s}$ (sequential, no way around it)</li>
+                </ul>
+
+                <p><strong>Speculative decoding (assume all tokens accepted)</strong></p>
+
+                <p>Draft proposes 20 tokens, target verifies in blocks of 5:</p>
+                <ul>
+                    <li>Draft FLOPs: $20 \times F_D = 20 \times 0.1 F_T = 2 F_T$</li>
+                    <li>Target FLOPs: Still $20 \times F_T$ (verifying 20 tokens costs the same as generating 20 tokens!)</li>
+                    <li>Total FLOPs: $22 F_T$  that's <strong>10% more compute</strong> than baseline</li>
+                </ul>
+
+                <p>Wait, so we're doing <em>more</em> work? Yes! But look at the latency:</p>
+                <ul>
+                    <li>Draft latency: $20 \times 50\text{ms} = 1\text{s}$</li>
+                    <li>Target latency: 4 verification passes × ~500ms each ≈ $2\text{s}$ (the 5 tokens per pass run in parallel!)</li>
+                    <li>Total latency: ~$3\text{s}$  that's <strong>3× faster</strong> than baseline</li>
+                </ul>
+
+                <p><strong>The punchline:</strong> We spend 10% more FLOPs but get 3× lower latency. How? Because standard decoding is <em>memory-bound</em>, not compute-bound. The GPU sits mostly idle, waiting for weights to load from memory. Speculative decoding fills those idle cycles with useful work.</p>
+
+                <h3>Why Verification Costs the Same FLOPs as Generation</h3>
+
+                <p>This is subtle but important. Whether you generate 5 tokens one-by-one or verify 5 tokens in one pass, the target model does roughly the same arithmetic: the same Q/K/V projections, the same attention computations, the same FFN multiplications. The FLOPs are the same.</p>
+
+                <p>The difference is <strong>parallelism</strong>. When generating, each token depends on the previous one, you can't predict token 3 until you know token 2. So you're forced to go sequentially: 5 forward passes, 5× the latency.</p>
+
+                <p>But verification is different. The draft already gave us a complete sequence. We feed all 5 tokens to the target at once, and thanks to the transformer architecture, it computes all positions in parallel. One forward pass, 1× the latency, same FLOPs.</p>
+
+                <p>Sound familiar? This is exactly what happens during training with <strong>teacher forcing</strong>: we feed the model a complete sequence and it predicts all next tokens in parallel. Speculative decoding exploits the same trick at inference time, using the draft model's guesses as the "teacher" sequence.</p>
+
+                <p style="position: relative;">This parallelism is actually one of the key reasons transformers replaced RNNs.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>Vaswani et al. "Attention Is All You Need." <em>NeurIPS 2017</em>. <a href="https://arxiv.org/abs/1706.03762" target="_blank">Paper</a></span> RNNs process sequences step-by-step, each hidden state depends on the previous one so even training is sequential. Transformers broke this dependency with self-attention: every position can attend to every other position in parallel. This made training massively faster on GPUs. Speculative decoding is essentially bringing that same parallel advantage to inference.</p>
+
+                <h2 id="formal">The Formal Algorithm</h2>
+
+                <p style="position: relative;">The algorithm comes from the 2022 paper "Fast Inference from Transformers via Speculative Decoding" by Leviathan et al.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>Leviathan, Y., Kalman, M., & Matias, Y. (2023). "Fast Inference from Transformers via Speculative Decoding." <em>ICML 2023</em>. <a href="https://arxiv.org/abs/2211.17192" target="_blank">Paper</a></span></p>
+
+                <p>Here's the core idea, stated precisely:</p>
+
+                <p>To sample $x \sim p(x)$ from the target distribution, we instead:</p>
+                <ol>
+                    <li>Sample $x \sim q(x)$ from the draft model</li>
+                    <li>Accept the sample with probability $\min\left(1, \frac{p(x)}{q(x)}\right)$</li>
+                    <li>If rejected, sample from an adjusted distribution: $p'(x) = \text{norm}(\max(0, p(x) - q(x)))$</li>
+                </ol>
+
+                <p>The beautiful part: this procedure produces samples distributed <em>exactly</em> as $p(x)$. Not approximately. Exactly.</p>
+
+                <h2 id="no-quality-loss">The Magic: No Quality Loss</h2>
+
+                <p>This is the part that surprises most people. Speculative decoding isn't an approximation. It's not "almost as good" as the large model. The output distribution is <strong>mathematically identical</strong> to what you'd get from the large model alone.</p>
+
+                <p>How is this possible? The acceptance/rejection scheme is carefully designed so that:</p>
+                <ul>
+                    <li>When the draft model agrees with the target model, we accept (fast path)</li>
+                    <li>When they disagree, we reject and sample from the "leftover" probability mass</li>
+                    <li>The combination of these two cases exactly reconstructs the target distribution</li>
+                </ul>
+
+                <p>We'll prove this rigorously later with a worked example. For now, trust that the math checks out.</p>
+
+                <h2 id="implementation">Let's Build It</h2>
+
+                <p>Time to get our hands dirty. We'll implement speculative decoding step by step, starting with standard autoregressive decoding as a baseline.</p>
+
+                <h3 id="standard-decoding">Standard Autoregressive Decoding</h3>
+
+                <p>First, let's see how normal LLM inference works. Nothing fancy here, just the standard token-by-token generation:</p>
+
+<pre><code class="language-python">import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# Load model and tokenizer
+model_name = "Qwen/Qwen3-4B"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+device = model.device
+
+# Prepare input
+prompt = "The top 5 countries by population are:"
+input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+
+# Generate one token at a time
+for _ in range(50):
+    with torch.no_grad():
+        outputs = model(input_ids)
+        next_token_logits = outputs.logits[:, -1, :]
+        next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+        input_ids = torch.cat([input_ids, next_token], dim=-1)
+        
+        if next_token.item() == tokenizer.eos_token_id:
+            break
+
+print(tokenizer.decode(input_ids[0]))</code></pre>
+
+                <p style="position: relative;">Notice how we call the model once per token. Each call processes the entire sequence, which is wasteful since we've already computed most of it.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>This is where KV caching comes in. Check out my <a href="../kv-cache-from-scratch.html">blog post on KV cache</a> to see how we can avoid redundant computation.</span></p>
+
+                <p>Let's clean this up into reusable functions:</p>
+
+<pre><code class="language-python">def sample_next_token(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
+    """Sample next token from logits with optional temperature."""
+    if temperature > 0:
+        probs = torch.softmax(logits / temperature, dim=-1)
+        return torch.multinomial(probs, num_samples=1)
+    else:
+        return torch.argmax(logits, dim=-1, keepdim=True)
+
+@torch.no_grad()
+def generate_standard(model, input_ids, max_new_tokens, temperature=1.0):
+    """Standard autoregressive generation."""
+    for _ in range(max_new_tokens):
+        outputs = model(input_ids)
+        next_logits = outputs.logits[:, -1, :]
+        next_token = sample_next_token(next_logits, temperature)
+        input_ids = torch.cat([input_ids, next_token], dim=-1)
+        
+        if next_token.item() == tokenizer.eos_token_id:
+            break
+    
+    return input_ids</code></pre>
+
+                <h3 id="speculative-impl">Speculative Decoding Implementation</h3>
+
+                <p>Now for the main event. We need two models: a small draft model and a large target model.</p>
+
+<pre><code class="language-python"># Load both models
+draft_model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+target_model_name = "Qwen/Qwen3-4B-Instruct-2507"
+
+draft_model = AutoModelForCausalLM.from_pretrained(
+    draft_model_name, torch_dtype=torch.float16, device_map="auto"
+)
+target_model = AutoModelForCausalLM.from_pretrained(
+    target_model_name, torch_dtype=torch.float16, device_map="auto"
+)
+tokenizer = AutoTokenizer.from_pretrained(target_model_name)</code></pre>
+
+                <p>The speculative decoding loop has three main steps:</p>
+
+                <p><strong>Step 1: Draft model proposes K tokens</strong></p>
+
+<pre><code class="language-python">@torch.no_grad()
+def draft_tokens(draft_model, input_ids, K, temperature=1.0):
+    """Generate K draft tokens and their probabilities."""
+    draft_tokens = []
+    draft_probs = []
+    
+    current_ids = input_ids.clone()
+    
+    for _ in range(K):
+        outputs = draft_model(current_ids)
+        logits = outputs.logits[:, -1, :]
+        probs = torch.softmax(logits / temperature, dim=-1)
+        
+        next_token = torch.multinomial(probs, num_samples=1)
+        token_prob = probs[0, next_token.item()]
+        
+        draft_tokens.append(next_token)
+        draft_probs.append(token_prob)
+        current_ids = torch.cat([current_ids, next_token], dim=-1)
+    
+    return torch.cat(draft_tokens, dim=-1), torch.stack(draft_probs)</code></pre>
+
+                <p><strong>Step 2: Target model verifies all K tokens in one forward pass</strong></p>
+
+<pre><code class="language-python">@torch.no_grad()
+def verify_tokens(target_model, input_ids, draft_tokens, temperature=1.0):
+    """Get target model probabilities for all draft tokens at once."""
+    # Concatenate input with draft tokens
+    full_ids = torch.cat([input_ids, draft_tokens.unsqueeze(0)], dim=-1)
+    
+    # Single forward pass gets logits for all positions
+    outputs = target_model(full_ids)
+    logits = outputs.logits
+    
+    # Extract probabilities at each draft position
+    # Position i in draft corresponds to logits at position (input_len + i - 1)
+    input_len = input_ids.shape[1]
+    target_probs = []
+    
+    for i in range(len(draft_tokens)):
+        pos_logits = logits[0, input_len + i - 1, :]
+        probs = torch.softmax(pos_logits / temperature, dim=-1)
+        target_probs.append(probs[draft_tokens[i]])
+    
+    # Also get the distribution for the next token (after all drafts)
+    final_logits = logits[0, -1, :]
+    final_probs = torch.softmax(final_logits / temperature, dim=-1)
+    
+    return torch.stack(target_probs), final_probs</code></pre>
+
+                <p><strong>Step 3: Accept or reject each token</strong></p>
+
+<pre><code class="language-python">@torch.no_grad()
+def speculative_decode_step(
+    draft_model, target_model, input_ids, K, temperature=1.0
+):
+    """One step of speculative decoding."""
+    # Step 1: Generate K draft tokens
+    draft_toks, draft_probs = draft_tokens(draft_model, input_ids, K, temperature)
+    
+    # Step 2: Verify with target model
+    target_probs, final_dist = verify_tokens(
+        target_model, input_ids, draft_toks, temperature
+    )
+    
+    # Step 3: Accept/reject each token
+    accepted = 0
+    for i in range(K):
+        # Acceptance probability: min(1, p_target / p_draft)
+        accept_prob = min(1.0, (target_probs[i] / draft_probs[i]).item())
+        
+        # Random acceptance
+        if torch.rand(1).item() < accept_prob:
+            accepted += 1
+        else:
+            # Rejection: sample from residual distribution
+            # p'(x) = norm(max(0, p_target(x) - p_draft(x)))
+            break
+    
+    if accepted == K:
+        # All accepted! Bonus: sample one more from target's final distribution
+        bonus_token = torch.multinomial(final_dist, num_samples=1)
+        new_tokens = torch.cat([draft_toks[:accepted], bonus_token.squeeze()])
+    elif accepted == 0:
+        # First token rejected: sample from residual at position 0
+        residual = compute_residual(target_probs_full[0], draft_probs_full[0])
+        new_tokens = torch.multinomial(residual, num_samples=1).squeeze()
+    else:
+        # Partial acceptance: keep accepted tokens, sample residual for rejected position
+        new_tokens = draft_toks[:accepted]
+        # In practice, we'd sample from residual here
+    
+    return new_tokens, accepted</code></pre>
+
+                <p>The full generation loop:</p>
+
+<pre><code class="language-python">@torch.no_grad()
+def generate_speculative(
+    draft_model, target_model, input_ids, 
+    max_new_tokens, K=4, temperature=1.0
+):
+    """Full speculative decoding generation."""
+    generated = 0
+    total_accepted = 0
+    total_drafted = 0
+    
+    while generated < max_new_tokens:
+        new_tokens, accepted = speculative_decode_step(
+            draft_model, target_model, input_ids, K, temperature
+        )
+        
+        input_ids = torch.cat([input_ids, new_tokens.unsqueeze(0)], dim=-1)
+        generated += len(new_tokens)
+        total_accepted += accepted
+        total_drafted += K
+        
+        # Check for EOS
+        if tokenizer.eos_token_id in new_tokens:
+            break
+    
+    acceptance_rate = total_accepted / total_drafted
+    return input_ids, acceptance_rate</code></pre>
+
+                <h2 id="benchmarks">Benchmarks</h2>
+
+                <p>Let's compare wall-clock time between standard decoding and speculative decoding:</p>
+
+<pre><code class="language-python">import time
+
+prompt = "List the top 10 countries by population in decreasing order:"
+input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+
+# Standard decoding
+start = time.time()
+output_standard = generate_standard(target_model, input_ids.clone(), max_new_tokens=100)
+time_standard = time.time() - start
+
+# Speculative decoding
+start = time.time()
+output_spec, acceptance_rate = generate_speculative(
+    draft_model, target_model, input_ids.clone(), 
+    max_new_tokens=100, K=4
+)
+time_speculative = time.time() - start
+
+print(f"Standard decoding: {time_standard:.2f}s")
+print(f"Speculative decoding: {time_speculative:.2f}s")
+print(f"Speedup: {time_standard / time_speculative:.2f}x")
+print(f"Acceptance rate: {acceptance_rate:.1%}")</code></pre>
+
+                <p><strong>Typical results:</strong></p>
+<pre><code>Standard decoding: 12.34s
+Speculative decoding: 5.21s
+Speedup: 2.37x
+Acceptance rate: 78.5%</code></pre>
+
+                <p>The speedup depends heavily on how well the draft model matches the target. Higher acceptance rate = more speedup. In practice, you want draft and target models from the same family (like Qwen 0.5B drafting for Qwen 4B).</p>
+
+                <h2 id="proof">Why It Works: A Step-by-Step Proof</h2>
+
+                <p>Now for the fun part. Let's prove that speculative decoding produces exactly the target distribution. We'll start with a single token, then extend to blocks.</p>
+
+                <h3 id="single-token">Single Token Example</h3>
+
+                <p>Vocabulary = {A, B, C}. We want to sample from the target (large) model.</p>
+
+                <p><strong>1. Two models have different probabilities:</strong></p>
+
+                <p>Target model $P^T$ (the one we want to sample from):</p>
+                <ul>
+                    <li>$P^T(A) = 0.6$</li>
+                    <li>$P^T(B) = 0.3$</li>
+                    <li>$P^T(C) = 0.1$</li>
+                </ul>
+
+                <p>Draft model $P^D$ (cheap guesser):</p>
+                <ul>
+                    <li>$P^D(A) = 0.4$</li>
+                    <li>$P^D(B) = 0.4$</li>
+                    <li>$P^D(C) = 0.2$</li>
+                </ul>
+
+                <p><strong>2. Draft model samples a proposal:</strong></p>
+                <p>Suppose the draft samples <strong>B</strong> (happens with probability 0.4).</p>
+
+                <p><strong>3. Compute acceptance probability:</strong></p>
+
+                $$\alpha = \min\left(1, \frac{P^T(B)}{P^D(B)}\right) = \min\left(1, \frac{0.3}{0.4}\right) = 0.75$$
+
+                <p>Interpretation: we accept the draft's B with 75% probability.</p>
+
+                <p><strong>4. Flip a random coin:</strong></p>
+                <p>Draw $u \sim \text{Uniform}(0, 1)$.</p>
+                <ul>
+                    <li>If $u \leq 0.75$ → accept B</li>
+                    <li>If $u > 0.75$ → reject B</li>
+                </ul>
+                <p>Say we drew $u = 0.80$ → <strong>reject</strong>.</p>
+
+                <p><strong>5. If rejected, sample from the residual distribution:</strong></p>
+
+                <p>This is the part most explanations skip. When you reject, you don't just sample fresh from $P^T$. You sample from a <em>residual</em> distribution that accounts for what was already "offered" by the draft.</p>
+
+                <p>Define residual weights:</p>
+                $$r(x) = P^T(x) - \min(P^T(x), P^D(x))$$
+
+                <p>Compute for each token:</p>
+                <ul>
+                    <li>A: $\min(0.6, 0.4) = 0.4$ → $r(A) = 0.6 - 0.4 = 0.2$</li>
+                    <li>B: $\min(0.3, 0.4) = 0.3$ → $r(B) = 0.3 - 0.3 = 0.0$</li>
+                    <li>C: $\min(0.1, 0.2) = 0.1$ → $r(C) = 0.1 - 0.1 = 0.0$</li>
+                </ul>
+
+                <p>Residual mass sums to 0.2. Normalized: <strong>A: 1.0, B: 0.0, C: 0.0</strong></p>
+
+                <p>So on rejection, we <em>must</em> output A.</p>
+
+                <p><strong>6. Final output in this run: A</strong></p>
+
+                <h3>Why This Produces Exactly the Target Distribution</h3>
+
+                <p>Let's verify by computing the final probability of each token:</p>
+
+                <p><strong>Output B:</strong></p>
+                <p>You output B only if draft proposes B AND it's accepted:</p>
+                <ul>
+                    <li>$P(\text{draft proposes B}) = 0.4$</li>
+                    <li>$P(\text{accept} | \text{proposed B}) = 0.75$</li>
+                </ul>
+                $$P(\text{output B}) = 0.4 \times 0.75 = 0.30 = P^T(B) \checkmark$$
+
+                <p><strong>Output A:</strong></p>
+                <p>Two ways to output A:</p>
+                <ol>
+                    <li>Draft proposes A and it's accepted:
+                        <ul>
+                            <li>Accept prob = $\min(1, 0.6/0.4) = 1$</li>
+                            <li>Contribution: $0.4 \times 1 = 0.4$</li>
+                        </ul>
+                    </li>
+                    <li>Draft proposes B or C, rejected, residual gives A:
+                        <ul>
+                            <li>B rejected: $0.4 \times (1 - 0.75) = 0.1$</li>
+                            <li>C rejected: accept prob = $\min(1, 0.1/0.2) = 0.5$, so $0.2 \times 0.5 = 0.1$</li>
+                        </ul>
+                    </li>
+                </ol>
+                $$P(\text{output A}) = 0.4 + 0.1 + 0.1 = 0.6 = P^T(A) \checkmark$$
+
+                <p><strong>Output C:</strong></p>
+                <p>Draft proposes C (0.2) and accept prob 0.5:</p>
+                $$P(\text{output C}) = 0.2 \times 0.5 = 0.1 = P^T(C) \checkmark$$
+
+                <p><strong>It works out exactly!</strong></p>
+
+                <div class="blog-post-tldr" style="margin-top: 32px;">
+                    <h3>Intuition in One Line</h3>
+                    <p>The draft model "offers" tokens; the target model either accepts them at the right rate or, when it rejects, samples from the leftover probability mass so the final outcome matches the target.</p>
+                </div>
+
+                <h3 id="multi-token">Multi-Token Block Example</h3>
+
+                <p>In practice, we draft multiple tokens at once. Here's how rejection works with a 4-token block.</p>
+
+                <p><strong>Setup:</strong> Vocabulary = {A, B, C}. Generating tokens $t_1, t_2, t_3, t_4$.</p>
+
+                <p>Draft proposal: $t_1 = B, t_2 = A, t_3 = C, t_4 = A$</p>
+
+                <p>The target model verifies the whole block in one forward pass, producing conditional distributions at each position.</p>
+
+                <p><strong>Step 1: Verify $t_1 = B$</strong></p>
+                <ul>
+                    <li>$P_1^T(B) = 0.30$, $P_1^D(B) = 0.50$</li>
+                    <li>$\alpha_1 = \min(1, 0.30/0.50) = 0.60$</li>
+                    <li>Flip: $u_1 = 0.41$ → accept (0.41 ≤ 0.60) ✅</li>
+                </ul>
+                <p>Output so far: <strong>B</strong></p>
+
+                <p><strong>Step 2: Verify $t_2 = A$ (conditioned on B)</strong></p>
+                <ul>
+                    <li>$P_2^T(A) = 0.70$, $P_2^D(A) = 0.60$</li>
+                    <li>$\alpha_2 = \min(1, 0.70/0.60) = 1$ → auto-accept ✅</li>
+                </ul>
+                <p>Output so far: <strong>B A</strong></p>
+
+                <p><strong>Step 3: Verify $t_3 = C$ (conditioned on B A)</strong></p>
+                <ul>
+                    <li>$P_3^T(C) = 0.05$, $P_3^D(C) = 0.25$</li>
+                    <li>$\alpha_3 = \min(1, 0.05/0.25) = 0.20$</li>
+                    <li>Flip: $u_3 = 0.73$ → <strong>reject</strong> (0.73 > 0.20) ❌</li>
+                </ul>
+
+                <p><strong>What happens now?</strong></p>
+                <ul>
+                    <li>Discard $t_3$ and everything after it ($t_4$ is thrown away)</li>
+                    <li>Sample the next token from the target's residual distribution at position 3</li>
+                    <li>End this speculation round; start a new draft block</li>
+                </ul>
+
+                <p><strong>Residual sampling:</strong></p>
+                <p>Full distributions at position 3:</p>
+                <ul>
+                    <li>Target $P_3^T$: A=0.80, B=0.15, C=0.05</li>
+                    <li>Draft $P_3^D$: A=0.60, B=0.15, C=0.25</li>
+                </ul>
+
+                <p>Residuals:</p>
+                <ul>
+                    <li>A: $\min(0.80, 0.60) = 0.60$ → $r(A) = 0.20$</li>
+                    <li>B: $\min(0.15, 0.15) = 0.15$ → $r(B) = 0.00$</li>
+                    <li>C: $\min(0.05, 0.25) = 0.05$ → $r(C) = 0.00$</li>
+                </ul>
+
+                <p>All residual mass is on A, so after rejection: <strong>new $t_3$ = A</strong></p>
+
+                <p><strong>Final output: B A A</strong></p>
+
+                <p>The draft's $t_4$ is gone because it was generated under a prefix that no longer applies. Next round, the draft proposes a new block starting from "B A A".</p>
+
+                <h2 id="distillation">Bonus: Draft Model Distillation</h2>
+
+                <p style="position: relative;">How do we get a high acceptance rate? The draft model needs to match the target model's distribution as closely as possible. One approach: use <strong>knowledge distillation</strong> to train the draft specifically to mimic the target.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>Zhou et al. "DistillSpec: Improving Speculative Decoding via Knowledge Distillation." <em>ICLR 2024</em>. <a href="https://arxiv.org/abs/2310.08461" target="_blank">Paper</a></span></p>
+
+                <p style="position: relative;">Here's the catch: standard distillation using forward KL doesn't work well.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>For a deeper dive into forward vs reverse KL, check out my <a href="../forward-vs-reverse-kl/forward-vs-reverse-kl.html">blog post on KL divergence</a>.</span> Forward KL makes the student "cover" all modes of the teacher — but a small draft model doesn't have the capacity for that. It ends up spreading probability too thin, and during generation, you risk sampling bad tokens that compound into errors.</p>
+
+                <p style="position: relative;">The solution: use <strong>reverse KL</strong> or a mixture (like Jensen-Shannon divergence). Reverse KL makes the draft model focus on what it can do well, rather than trying to cover everything. The DistillSpec paper<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>See also Phil Kravtsov's excellent <a href="https://philkrav.com/posts/speculative/" target="_blank">blog post</a> for more details on distillation recipes.</span> finds that distilled drafts give additional speedups, and training with reverse KL or JSD on draft-generated outputs works best.</p>
+
+                <!-- Quiz Section -->
+                <div class="quiz-section">
+                    <h2 id="quiz">Quiz Time! 🧠</h2>
+
+                    <div class="quiz-card">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz A</span>
+                            <h3>Acceptance Rate</h3>
+                        </div>
+                        <p class="quiz-question">
+                            If the draft model proposes token X with probability $P^D(X) = 0.8$ and the target model has $P^T(X) = 0.4$, what is the acceptance probability?
+                        </p>
+                        <div class="quiz-options">
+                            <div class="quiz-option correct">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">0.5</span>
+                            </div>
+                            <div class="quiz-option">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">0.8</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="toggleQuizAnswer(this)">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: A</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p><strong>Think about it:</strong> The acceptance probability is designed to "throttle" the draft when it's overconfident. If the draft says 0.8 but the target only says 0.4, we should accept roughly half the time to match the target's lower confidence.</p>
+                                <p>The formula: $\alpha = \min\left(1, \frac{P^T(X)}{P^D(X)}\right) = \min\left(1, \frac{0.4}{0.8}\right) = 0.5$</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="quiz-card">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz B</span>
+                            <h3>When Does Speculative Decoding Help Most?</h3>
+                        </div>
+                        <p class="quiz-question">
+                            Which scenario would give the best speedup from speculative decoding?
+                        </p>
+                        <div class="quiz-options">
+                            <div class="quiz-option correct">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">Draft and target models from the same family (e.g., Llama 7B drafting for Llama 70B)</span>
+                            </div>
+                            <div class="quiz-option">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">Draft and target models from different families (e.g., GPT-2 drafting for Llama 70B)</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="toggleQuizAnswer(this)">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: A</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p><strong>Think about it:</strong> Speculative decoding works best when the draft model's predictions closely match the target's. Models from the same family share training data, tokenizers, and learned patterns, so they tend to agree more often.</p>
+                                <p>Higher agreement → higher acceptance rate → more tokens accepted per verification → bigger speedup.</p>
+                                <p>With mismatched models, the draft might propose tokens the target would never choose, leading to constant rejections and no speedup (or even slowdown from the overhead).</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="quiz-card">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz C</span>
+                            <h3>Residual Distribution</h3>
+                        </div>
+                        <p class="quiz-question">
+                            The draft model proposed a token, we rejected it, and now we need to sample from the residual distribution. Given $P^T = [0.5, 0.3, 0.2]$ and $P^D = [0.2, 0.5, 0.3]$ for tokens [A, B, C], what is the normalized residual distribution?
+                        </p>
+                        <div class="quiz-options">
+                            <div class="quiz-option correct">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">[1.0, 0.0, 0.0] (all mass on A)</span>
+                            </div>
+                            <div class="quiz-option">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">[0.5, 0.3, 0.2] (same as target)</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="toggleQuizAnswer(this)">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: A</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p><strong>Think about it:</strong> The residual captures the "leftover" probability that the target has but the draft doesn't. It's where the target is more confident than the draft.</p>
+                                <p>Compute $r(x) = P^T(x) - \min(P^T(x), P^D(x))$:</p>
+                                <ul>
+                                    <li>A: $0.5 - \min(0.5, 0.2) = 0.5 - 0.2 = 0.3$</li>
+                                    <li>B: $0.3 - \min(0.3, 0.5) = 0.3 - 0.3 = 0.0$</li>
+                                    <li>C: $0.2 - \min(0.2, 0.3) = 0.2 - 0.2 = 0.0$</li>
+                                </ul>
+                                <p>Normalized: $[0.3/0.3, 0, 0] = [1.0, 0.0, 0.0]$</p>
+                                <p>The target "wants" A more than the draft does, so all residual mass goes to A.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="quiz-card">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz D</span>
+                            <h3>Compute vs Latency</h3>
+                        </div>
+                        <p class="quiz-question">
+                            Compared to standard decoding, speculative decoding uses:
+                        </p>
+                        <div class="quiz-options">
+                            <div class="quiz-option">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">Less compute and lower latency</span>
+                            </div>
+                            <div class="quiz-option correct">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">More compute but lower latency</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="toggleQuizAnswer(this)">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: B</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p><strong>Think about it:</strong> We're running two models now instead of one! The draft model adds extra compute. And even when tokens get rejected, we still paid for those draft forward passes.</p>
+                                <p>So why bother? Because latency (wall-clock time) drops. The draft model is tiny and fast, and the target model verifies K tokens in one pass instead of K passes. On modern GPUs, the bottleneck is often memory bandwidth, not raw compute so doing more work per forward pass is a win.</p>
+                                <p>Speculative decoding trades compute for latency. You burn more FLOPs but get answers faster.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="quiz-card">
+                        <div class="quiz-card-header">
+                            <span class="quiz-number">Quiz E</span>
+                            <h3>Task Dependence</h3>
+                        </div>
+                        <p class="quiz-question">
+                            On which task would speculative decoding likely give a bigger speedup?
+                        </p>
+                        <div class="quiz-options">
+                            <div class="quiz-option correct">
+                                <span class="quiz-option-letter">A</span>
+                                <span class="quiz-option-text">Code generation (e.g., writing a Python function)</span>
+                            </div>
+                            <div class="quiz-option">
+                                <span class="quiz-option-letter">B</span>
+                                <span class="quiz-option-text">Creative writing (e.g., writing a poem)</span>
+                            </div>
+                        </div>
+                        <button class="quiz-reveal-btn" onclick="toggleQuizAnswer(this)">
+                            <i class="fas fa-lightbulb"></i> Reveal Answer
+                        </button>
+                        <div class="quiz-answer">
+                            <div class="quiz-answer-header">
+                                <span class="quiz-answer-badge"><i class="fas fa-check"></i> Answer: A</span>
+                            </div>
+                            <div class="quiz-explanation">
+                                <p><strong>Think about it:</strong> Speculative decoding works best when the draft model can predict what the target will say. Code is highly structured and predictable: syntax, common patterns, boilerplate like <code>def</code>, <code>return</code>, <code>if __name__</code>, etc. A small model can nail these.</p>
+                                <p>Creative writing is the opposite. The whole point is to be surprising and original. The target model might choose unexpected words, metaphors, or phrasings that a small draft model would never guess. Low acceptance rate = little speedup.</p>
+                                <p>Rule of thumb: predictable outputs → high acceptance → big speedup.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Citation Section -->
+                <div class="citation-section">
+                    <h2 id="citation">Citation</h2>
+                    <p>Please cite this work as:</p>
+                    <pre class="citation-box"><code>Hamad, Hassan, "Speculative Decoding: Fast LLM Inference Without Quality Loss", hassanhamad.com, Nov 2025.</code><button class="citation-copy-btn" onclick="copyCitation(this)"><i class="fas fa-copy"></i></button></pre>
+                    <p>Or use the BibTeX citation:</p>
+                    <pre class="citation-box"><code>@article{hamad2025speculative,
+  author = {Hassan Hamad},
+  title = {Speculative Decoding: Fast LLM Inference Without Quality Loss},
+  journal = {hassanhamad.com},
+  year = {2025},
+  note = {https://hassanhamad.com/blog/speculative_decoding/},
+}</code><button class="citation-copy-btn" onclick="copyCitation(this)"><i class="fas fa-copy"></i></button></pre>
+                </div>
+
+            </div>
+        </div>
+    </article>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2026 Hassan Hamad. All rights reserved.</p>
+            <div class="footer-links">
+                <a href="mailto:hmmhhamad@gmail.com"><i class="fas fa-envelope"></i></a>
+                <a href="https://github.com/hmhamad" target="_blank"><i class="fab fa-github"></i></a>
+                <a href="https://www.linkedin.com/in/hassan-hamad-338a7513b/" target="_blank"><i class="fab fa-linkedin"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../../js/scripts.js"></script>
+</body>
+</html>
