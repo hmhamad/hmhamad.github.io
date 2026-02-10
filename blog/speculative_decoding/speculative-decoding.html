@@ -62,11 +62,14 @@
                 <li><a href="#no-quality-loss" class="toc-link">No Quality Loss!</a></li>
                 <li><a href="#implementation" class="toc-link">Implementation</a>
                     <ul>
-                        <li><a href="#standard-decoding" class="toc-link">Standard Decoding</a></li>
-                        <li><a href="#speculative-impl" class="toc-link">Speculative Decoding</a></li>
+                        <li><a href="#standard-decoding" class="toc-link">Program 0: The Baseline</a></li>
+                        <li><a href="#program1" class="toc-link">Program 1: The Loop</a></li>
+                        <li><a href="#program2" class="toc-link">Program 2: K Tokens</a></li>
+                        <li><a href="#speculative-impl" class="toc-link">Program 3: Draft Model</a></li>
+                        <li><a href="#program4" class="toc-link">Program 4: Full Loop</a></li>
+                        <li><a href="#benchmarks" class="toc-link">Program 5: Benchmarks</a></li>
                     </ul>
                 </li>
-                <li><a href="#benchmarks" class="toc-link">Benchmarks</a></li>
                 <li><a href="#proof" class="toc-link">Why It Works: A Proof</a>
                     <ul>
                         <li><a href="#single-token" class="toc-link">Single Token Example</a></li>
@@ -216,245 +219,410 @@
 
                 <h2 id="implementation">Let's Build It</h2>
 
-                <p>Time to get our hands dirty. We'll implement speculative decoding step by step, starting with standard autoregressive decoding as a baseline.</p>
+                <p>Alright, enough talking. Time to get our hands dirty. We'll build speculative decoding from scratch, one step at a time. Each program builds on the previous one, so by the end you'll have a complete, working implementation.</p>
 
-                <h3 id="standard-decoding">Standard Autoregressive Decoding</h3>
+                <h3 id="standard-decoding">Program 0: The Baseline (a.k.a. "Let HuggingFace Do Everything")</h3>
 
-                <p>First, let's see how normal LLM inference works. Nothing fancy here, just the standard token-by-token generation:</p>
+                <p>Here's the most basic way to generate text with a language model:</p>
 
 <pre><code class="language-python">import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+# ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
+model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+device = "mps"  # use "cuda" if you have an NVIDIA GPU
+temperature = 0.8
+max_new_tokens = 100
+
+# ------------------------------------------------------------
 # Load model and tokenizer
-model_name = "Qwen/Qwen3-4B"
+# ------------------------------------------------------------
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
-device = model.device
 
-# Prepare input
-prompt = "The top 5 countries by population are:"
-input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    device_map=device,
+    torch_dtype="auto"
+)
 
-# Generate one token at a time
-for _ in range(50):
-    with torch.no_grad():
-        outputs = model(input_ids)
-        next_token_logits = outputs.logits[:, -1, :]
-        next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-        input_ids = torch.cat([input_ids, next_token], dim=-1)
-        
-        if next_token.item() == tokenizer.eos_token_id:
-            break
+# ------------------------------------------------------------
+# Prompt
+# ------------------------------------------------------------
+prompt = "List the top 5 countries by population in decreasing order."
 
-print(tokenizer.decode(input_ids[0]))</code></pre>
+messages = [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": prompt},
+]
 
-                <p style="position: relative;">Notice how we call the model once per token. Each call processes the entire sequence, which is wasteful since we've already computed most of it.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>This is where KV caching comes in. Check out my <a href="../kv-cache-from-scratch.html">blog post on KV cache</a> to see how we can avoid redundant computation.</span></p>
+text = tokenizer.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True
+)
 
-                <p>Let's clean this up into reusable functions:</p>
+# ------------------------------------------------------------
+# Tokenize
+# ------------------------------------------------------------
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
-<pre><code class="language-python">def sample_next_token(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
-    """Sample next token from logits with optional temperature."""
-    if temperature > 0:
-        probs = torch.softmax(logits / temperature, dim=-1)
-        return torch.multinomial(probs, num_samples=1)
-    else:
-        return torch.argmax(logits, dim=-1, keepdim=True)
+input_ids = inputs.input_ids
+orig_len = input_ids.shape[1]
 
-@torch.no_grad()
-def generate_standard(model, input_ids, max_new_tokens, temperature=1.0):
-    """Standard autoregressive generation."""
-    for _ in range(max_new_tokens):
-        outputs = model(input_ids)
+# ------------------------------------------------------------
+# Generate (sampling, not greedy)
+# ------------------------------------------------------------
+with torch.no_grad():
+    output_ids = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=True,
+        temperature=temperature,
+        top_p=0.9,
+    )
+
+# ------------------------------------------------------------
+# Decode only the generated continuation
+# ------------------------------------------------------------
+generated_ids = output_ids[0, orig_len:]
+output_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+print(output_text)</code></pre>
+
+                <p>This works, but it's a black box. <code>model.generate()</code> hides the entire decoding loop behind a single function call. That's great for production, but terrible for learning. If we want to understand and re-implement speculative decoding, we need to peel back that abstraction.</p>
+
+                <h3 id="program1">Program 1: Cracking Open the Loop</h3>
+
+                <p>At its core, text generation is nothing more than a loop that repeatedly:</p>
+                <ol>
+                    <li>Runs the model on the current tokens</li>
+                    <li>Looks at the logits for the last position</li>
+                    <li>Samples the next token</li>
+                    <li>Appends it to the input</li>
+                </ol>
+
+                <p>Let's implement exactly that. We'll replace <code>model.generate()</code> with our own loop:</p>
+
+<pre><code class="language-python"># ------------------------------------------------------------
+# Helper: sample next token
+# ------------------------------------------------------------
+def sample_next_token(logits: torch.Tensor, temperature: float) -> torch.Tensor:
+    """
+    logits: (1, vocab_size)
+    returns: (1, 1) next token id
+    """
+    probs = torch.softmax(logits / temperature, dim=-1)
+    next_token_id = torch.multinomial(probs, num_samples=1)
+    return next_token_id
+
+# ------------------------------------------------------------
+# Manual decoding loop (one token at a time)
+# ------------------------------------------------------------
+with torch.no_grad():
+    for step in range(max_new_tokens):
+        outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask
+        )
+
+        # logits: (1, seq_len, vocab_size)
         next_logits = outputs.logits[:, -1, :]
-        next_token = sample_next_token(next_logits, temperature)
-        input_ids = torch.cat([input_ids, next_token], dim=-1)
-        
-        if next_token.item() == tokenizer.eos_token_id:
+
+        next_token_id = sample_next_token(next_logits, temperature)
+
+        # append token
+        input_ids = torch.cat([input_ids, next_token_id], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones((1, 1), device=attention_mask.device, dtype=attention_mask.dtype)],
+            dim=1
+        )
+
+        # stop if EOS
+        if next_token_id.item() == eos_id:
+            break</code></pre>
+
+                <p style="position: relative;">Notice how we call the model once per token.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>Seems wasteful right? Each forward pass processes the entire sequence again. This is where KV caching comes in! Check out my <a href="../kv-cache-from-scratch.html">blog post on KV cache</a> to see how we can avoid redundant computation.</span></p>
+
+                <p>Now we can see exactly what's happening.</p>
+
+                <h3 id="program2">Program 2: Generating K Tokens at a Time</h3>
+
+                <p>Before we can talk about speculative decoding, we need one more refactor. Instead of generating exactly one token per loop iteration, we'll generalize our code to generate K tokens at a time. This allows us to control the number of draft tokens generated by our draft model.</p>
+
+<pre><code class="language-python"># ------------------------------------------------------------
+# Helper 1: forward pass
+# ------------------------------------------------------------
+@torch.no_grad()
+def forward_pass(
+    model,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Runs the model and returns logits for the last token.
+    returns: next_logits: (1, vocab_size)
+    """
+    outputs = model(
+        input_ids=input_ids,
+        attention_mask=attention_mask
+    )
+    return outputs.logits[:, -1, :]
+
+# ------------------------------------------------------------
+# Helper 2: generate K tokens
+# ------------------------------------------------------------
+@torch.no_grad()
+def generate_k_tokens(
+    model,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    k: int,
+    temperature: float,
+    eos_id: int,
+):
+    """
+    Generates up to k tokens sequentially.
+    returns: updated input_ids, updated attention_mask, finished (bool)
+    """
+    finished = False
+
+    for _ in range(k):
+        next_logits = forward_pass(model, input_ids, attention_mask)
+        next_token_id = sample_next_token(next_logits, temperature)
+
+        input_ids = torch.cat([input_ids, next_token_id], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones((1, 1), device=attention_mask.device, dtype=attention_mask.dtype)],
+            dim=1
+        )
+
+        if next_token_id.item() == eos_id:
+            finished = True
             break
-    
-    return input_ids</code></pre>
 
-                <h3 id="speculative-impl">Speculative Decoding Implementation</h3>
+    return input_ids, attention_mask, finished</code></pre>
 
-                <p>Now for the main event. We need two models: a small draft model and a large target model.</p>
+                <p>The main loop now just calls <code>generate_k_tokens</code> repeatedly. We're now ready for the fun part.</p>
 
-<pre><code class="language-python"># Load both models
+                <h3 id="speculative-impl">Program 3: Enter the Draft Model</h3>
+
+                <p>Now we give that K-token generation a name: <strong>drafting</strong>.</p>
+
+                <p>The key idea of speculative decoding is simple:</p>
+                <ol>
+                    <li>A small, fast <strong>draft model</strong> proposes several tokens</li>
+                    <li>A larger, more accurate <strong>target model</strong> verifies them</li>
+                    <li>We keep every token the target model agrees with</li>
+                    <li>At the first disagreement, the target model takes over</li>
+                </ol>
+
+                <p>First, let's load both models:</p>
+
+<pre><code class="language-python"># ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
+draft_model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+target_model_name = "Qwen/Qwen3-4B-Instruct"
+
+device = "mps"
+temperature = 0.8
+K = 4
+
+# ------------------------------------------------------------
+# Load tokenizer and models
+# ------------------------------------------------------------
+tokenizer = AutoTokenizer.from_pretrained(draft_model_name)
+
+draft_model = AutoModelForCausalLM.from_pretrained(
+    draft_model_name,
+    device_map=device,
+    torch_dtype="auto"
+)
+
+target_model = AutoModelForCausalLM.from_pretrained(
+    target_model_name,
+    device_map=device,
+    torch_dtype="auto"
+)</code></pre>
+
+                <p>Now the verification logic. This is where the magic happens. We run <em>both</em> models on the extended sequence and compare their probabilities:</p>
+
+<pre><code class="language-python">@torch.no_grad()
+def verify_drafted_tokens(
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    drafted_token_ids: torch.Tensor,   # shape: (1, K)
+):
+    """
+    Implements speculative verification.
+    Returns: accepted count, rejection index, residual distribution
+    """
+    # --------------------------------------------------------
+    # 1. Run both models in parallel on the extended sequence
+    # --------------------------------------------------------
+    extended_ids = torch.cat([input_ids, drafted_token_ids], dim=1)
+    extended_mask = torch.cat(
+        [attention_mask, torch.ones_like(drafted_token_ids)],
+        dim=1
+    )
+
+    draft_logits = forward_full_logits(draft_model, extended_ids, extended_mask)
+    target_logits = forward_full_logits(target_model, extended_ids, extended_mask)
+
+    accepted = 0
+    residual_probs = None
+    rejected_at = None
+
+    # --------------------------------------------------------
+    # 2. Token-by-token acceptance test
+    # --------------------------------------------------------
+    for i in range(drafted_token_ids.size(1)):
+        pos = input_ids.size(1) + i - 1
+        token_id = drafted_token_ids[0, i]
+
+        p_draft = torch.softmax(draft_logits[0, pos], dim=-1)[token_id]
+        p_target = torch.softmax(target_logits[0, pos], dim=-1)[token_id]
+
+        alpha = torch.clamp(p_target / p_draft, max=1.0)
+
+        # flip coin
+        if torch.rand(()) <= alpha:
+            accepted += 1
+            if token_id.item() == eos_id:
+                break
+        else:
+            rejected_at = i
+
+            # ------------------------------------------------
+            # 3. Compute residual distribution
+            # ------------------------------------------------
+            target_probs = torch.softmax(target_logits[0, pos], dim=-1)
+            draft_probs = torch.softmax(draft_logits[0, pos], dim=-1)
+
+            residual_probs = torch.clamp(target_probs - draft_probs, min=0.0)
+            break
+
+    return accepted, rejected_at, residual_probs</code></pre>
+
+                <p>The acceptance probability <code>alpha = min(1, p_target / p_draft)</code> is the heart of the algorithm. When the draft is overconfident (high <code>p_draft</code>, low <code>p_target</code>), we reject more often. When the target agrees or is even more confident, we always accept.</p>
+
+                <h3 id="program4">Program 4: The Full Loop</h3>
+
+                <p>Time to put it all together. We need to handle three cases:</p>
+                <ol>
+                    <li><strong>All tokens accepted:</strong> Great! We also get a bonus token from the target's final distribution</li>
+                    <li><strong>Some tokens accepted:</strong> Keep the accepted ones, sample from the residual for the rejected position</li>
+                    <li><strong>First token rejected:</strong> Sample from the residual immediately</li>
+                </ol>
+
+<pre><code class="language-python"># ------------------------------------------------------------
+# Main speculative decoding loop
+# ------------------------------------------------------------
+with torch.no_grad():
+    generated = 0
+
+    while generated < max_new_tokens:
+        # 1. Draft K tokens
+        drafted_tokens = draft_k_tokens(input_ids, attention_mask, K)
+
+        # 2. Verify in parallel
+        accepted_tokens, residual_probs, target_logits = verify_and_accept(
+            input_ids, attention_mask, drafted_tokens
+        )
+
+        # 3. Append accepted tokens
+        for tok in accepted_tokens:
+            input_ids = torch.cat([input_ids, tok], dim=1)
+            attention_mask = torch.cat(
+                [attention_mask, torch.ones((1, 1), device=attention_mask.device)],
+                dim=1
+            )
+
+        # 4. Handle rejection or full acceptance
+        if residual_probs is not None:
+            # rejection → sample from residual
+            next_token = sample_from_probs(residual_probs).view(1, 1)
+        else:
+            # full acceptance → sample from target's final distribution
+            # This gives us K+1 tokens per iteration!
+            pos = input_ids.size(1) - 1
+            probs = torch.softmax(target_logits[0, pos] / temperature, dim=-1)
+            next_token = torch.multinomial(probs, 1).view(1, 1)
+
+        input_ids = torch.cat([input_ids, next_token], dim=1)
+        attention_mask = torch.cat(
+            [attention_mask, torch.ones((1, 1), device=attention_mask.device)],
+            dim=1
+        )
+
+        generated = input_ids.shape[1] - orig_len
+
+        if next_token.item() == eos_id:
+            break</code></pre>
+
+                <p>Notice the bonus token trick: when all K drafted tokens are accepted, we've already computed the target's logits for position K+1. Free token! This means we can get up to K+1 tokens per iteration instead of just K.</p>
+
+                <h2 id="benchmarks">Program 5: Benchmarks</h2>
+
+                <p>Alright, moment of truth. Does this actually work? Let's benchmark three scenarios:</p>
+                <ol>
+                    <li><strong>Draft model only:</strong> Fast but dumb (0.5B params)</li>
+                    <li><strong>Target model only:</strong> Smart but slow (4B params)</li>
+                    <li><strong>Speculative decoding:</strong> Best of both worlds?</li>
+                </ol>
+
+                <p>We'll use a Qwen 0.5B as the draft and Qwen 4B as the target, generating 128 tokens:</p>
+
+<pre><code class="language-python"># ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
 draft_model_name = "Qwen/Qwen2.5-0.5B-Instruct"
 target_model_name = "Qwen/Qwen3-4B-Instruct-2507"
 
-draft_model = AutoModelForCausalLM.from_pretrained(
-    draft_model_name, torch_dtype=torch.float16, device_map="auto"
-)
-target_model = AutoModelForCausalLM.from_pretrained(
-    target_model_name, torch_dtype=torch.float16, device_map="auto"
-)
-tokenizer = AutoTokenizer.from_pretrained(target_model_name)</code></pre>
+device = "mps"
+temperature = 0.8
+max_new_tokens = 128
+K = 5</code></pre>
 
-                <p>The speculative decoding loop has three main steps:</p>
+                <p>Running on an M1 MacBook Pro:</p>
 
-                <p><strong>Step 1: Draft model proposes K tokens</strong></p>
+<pre><code>=== Benchmark Results ===
 
-<pre><code class="language-python">@torch.no_grad()
-def draft_tokens(draft_model, input_ids, K, temperature=1.0):
-    """Generate K draft tokens and their probabilities."""
-    draft_tokens = []
-    draft_probs = []
-    
-    current_ids = input_ids.clone()
-    
-    for _ in range(K):
-        outputs = draft_model(current_ids)
-        logits = outputs.logits[:, -1, :]
-        probs = torch.softmax(logits / temperature, dim=-1)
-        
-        next_token = torch.multinomial(probs, num_samples=1)
-        token_prob = probs[0, next_token.item()]
-        
-        draft_tokens.append(next_token)
-        draft_probs.append(token_prob)
-        current_ids = torch.cat([current_ids, next_token], dim=-1)
-    
-    return torch.cat(draft_tokens, dim=-1), torch.stack(draft_probs)</code></pre>
+Draft model:
+  time: 8.160s
+  tokens: 128.0
+  tok/s: 15.7
 
-                <p><strong>Step 2: Target model verifies all K tokens in one forward pass</strong></p>
+Target model:
+  time: 35.469s
+  tokens: 128.0
+  tok/s: 3.6
 
-<pre><code class="language-python">@torch.no_grad()
-def verify_tokens(target_model, input_ids, draft_tokens, temperature=1.0):
-    """Get target model probabilities for all draft tokens at once."""
-    # Concatenate input with draft tokens
-    full_ids = torch.cat([input_ids, draft_tokens.unsqueeze(0)], dim=-1)
-    
-    # Single forward pass gets logits for all positions
-    outputs = target_model(full_ids)
-    logits = outputs.logits
-    
-    # Extract probabilities at each draft position
-    # Position i in draft corresponds to logits at position (input_len + i - 1)
-    input_len = input_ids.shape[1]
-    target_probs = []
-    
-    for i in range(len(draft_tokens)):
-        pos_logits = logits[0, input_len + i - 1, :]
-        probs = torch.softmax(pos_logits / temperature, dim=-1)
-        target_probs.append(probs[draft_tokens[i]])
-    
-    # Also get the distribution for the next token (after all drafts)
-    final_logits = logits[0, -1, :]
-    final_probs = torch.softmax(final_logits / temperature, dim=-1)
-    
-    return torch.stack(target_probs), final_probs</code></pre>
+Speculative decoding:
+  time: 16.720s
+  tokens: 129.0
+  tok/s: 7.7
+  acceptance rate: 0.632
+  full accept fraction: 0.516
 
-                <p><strong>Step 3: Accept or reject each token</strong></p>
+Speedup vs target-only: 2.12×</code></pre>
 
-<pre><code class="language-python">@torch.no_grad()
-def speculative_decode_step(
-    draft_model, target_model, input_ids, K, temperature=1.0
-):
-    """One step of speculative decoding."""
-    # Step 1: Generate K draft tokens
-    draft_toks, draft_probs = draft_tokens(draft_model, input_ids, K, temperature)
-    
-    # Step 2: Verify with target model
-    target_probs, final_dist = verify_tokens(
-        target_model, input_ids, draft_toks, temperature
-    )
-    
-    # Step 3: Accept/reject each token
-    accepted = 0
-    for i in range(K):
-        # Acceptance probability: min(1, p_target / p_draft)
-        accept_prob = min(1.0, (target_probs[i] / draft_probs[i]).item())
-        
-        # Random acceptance
-        if torch.rand(1).item() < accept_prob:
-            accepted += 1
-        else:
-            # Rejection: sample from residual distribution
-            # p'(x) = norm(max(0, p_target(x) - p_draft(x)))
-            break
-    
-    if accepted == K:
-        # All accepted! Bonus: sample one more from target's final distribution
-        bonus_token = torch.multinomial(final_dist, num_samples=1)
-        new_tokens = torch.cat([draft_toks[:accepted], bonus_token.squeeze()])
-    elif accepted == 0:
-        # First token rejected: sample from residual at position 0
-        residual = compute_residual(target_probs_full[0], draft_probs_full[0])
-        new_tokens = torch.multinomial(residual, num_samples=1).squeeze()
-    else:
-        # Partial acceptance: keep accepted tokens, sample residual for rejected position
-        new_tokens = draft_toks[:accepted]
-        # In practice, we'd sample from residual here
-    
-    return new_tokens, accepted</code></pre>
+                <p><strong>2.12× speedup!</strong> And we're getting the exact same output distribution as the target model. The acceptance rate of 63% means roughly 3 out of every 5 drafted tokens get accepted. Not bad for a model that's 8× smaller.</p>
 
-                <p>The full generation loop:</p>
-
-<pre><code class="language-python">@torch.no_grad()
-def generate_speculative(
-    draft_model, target_model, input_ids, 
-    max_new_tokens, K=4, temperature=1.0
-):
-    """Full speculative decoding generation."""
-    generated = 0
-    total_accepted = 0
-    total_drafted = 0
-    
-    while generated < max_new_tokens:
-        new_tokens, accepted = speculative_decode_step(
-            draft_model, target_model, input_ids, K, temperature
-        )
-        
-        input_ids = torch.cat([input_ids, new_tokens.unsqueeze(0)], dim=-1)
-        generated += len(new_tokens)
-        total_accepted += accepted
-        total_drafted += K
-        
-        # Check for EOS
-        if tokenizer.eos_token_id in new_tokens:
-            break
-    
-    acceptance_rate = total_accepted / total_drafted
-    return input_ids, acceptance_rate</code></pre>
-
-                <h2 id="benchmarks">Benchmarks</h2>
-
-                <p>Let's compare wall-clock time between standard decoding and speculative decoding:</p>
-
-<pre><code class="language-python">import time
-
-prompt = "List the top 10 countries by population in decreasing order:"
-input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
-
-# Standard decoding
-start = time.time()
-output_standard = generate_standard(target_model, input_ids.clone(), max_new_tokens=100)
-time_standard = time.time() - start
-
-# Speculative decoding
-start = time.time()
-output_spec, acceptance_rate = generate_speculative(
-    draft_model, target_model, input_ids.clone(), 
-    max_new_tokens=100, K=4
-)
-time_speculative = time.time() - start
-
-print(f"Standard decoding: {time_standard:.2f}s")
-print(f"Speculative decoding: {time_speculative:.2f}s")
-print(f"Speedup: {time_standard / time_speculative:.2f}x")
-print(f"Acceptance rate: {acceptance_rate:.1%}")</code></pre>
-
-                <p><strong>Typical results:</strong></p>
-<pre><code>Standard decoding: 12.34s
-Speculative decoding: 5.21s
-Speedup: 2.37x
-Acceptance rate: 78.5%</code></pre>
+                <p>A few observations:</p>
+                <ul>
+                    <li>The draft model alone is ~4× faster than the target, but produces lower quality output</li>
+                    <li>Speculative decoding is ~2× faster than target-only while maintaining target quality</li>
+                    <li>The "full accept fraction" of 51% means we get the bonus K+1 token about half the time</li>
+                </ul>
 
                 <p>The speedup depends heavily on how well the draft model matches the target. Higher acceptance rate = more speedup. In practice, you want draft and target models from the same family (like Qwen 0.5B drafting for Qwen 4B).</p>
 
                 <h2 id="proof">Why It Works: A Step-by-Step Proof</h2>
 
-                <p>Now for the fun part. Let's prove that speculative decoding produces exactly the target distribution. We'll start with a single token, then extend to blocks.</p>
+                <p>Now for the part I promised you earlier. Let's prove that speculative decoding produces exactly the target distribution. We'll start with a single token, then extend to blocks.</p>
 
                 <h3 id="single-token">Single Token Example</h3>
 
@@ -617,7 +785,7 @@ Acceptance rate: 78.5%</code></pre>
 
                 <p style="position: relative;">How do we get a high acceptance rate? The draft model needs to match the target model's distribution as closely as possible. One approach: use <strong>knowledge distillation</strong> to train the draft specifically to mimic the target.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>Zhou et al. "DistillSpec: Improving Speculative Decoding via Knowledge Distillation." <em>ICLR 2024</em>. <a href="https://arxiv.org/abs/2310.08461" target="_blank">Paper</a></span></p>
 
-                <p style="position: relative;">Here's the catch: standard distillation using forward KL doesn't work well.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>For a deeper dive into forward vs reverse KL, check out my <a href="../forward-vs-reverse-kl/forward-vs-reverse-kl.html">blog post on KL divergence</a>.</span> Forward KL makes the student "cover" all modes of the teacher — but a small draft model doesn't have the capacity for that. It ends up spreading probability too thin, and during generation, you risk sampling bad tokens that compound into errors.</p>
+                <p style="position: relative;">Here's the catch: standard distillation using forward KL doesn't work well.<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>For a deeper dive into forward vs reverse KL, check out my <a href="../forward-vs-reverse-kl/forward-vs-reverse-kl.html">blog post on KL divergence</a>.</span> Forward KL makes the student "cover" all modes of the teacher. But a small draft model doesn't have the capacity for that. It ends up spreading probability too thin, and during generation, you risk sampling bad tokens that compound into errors.</p>
 
                 <p style="position: relative;">The solution: use <strong>reverse KL</strong> or a mixture (like Jensen-Shannon divergence). Reverse KL makes the draft model focus on what it can do well, rather than trying to cover everything. The DistillSpec paper<span class="sidenote-ref"></span><span class="sidenote"><span class="sidenote-number"></span>See also Phil Kravtsov's excellent <a href="https://philkrav.com/posts/speculative/" target="_blank">blog post</a> for more details on distillation recipes.</span> finds that distilled drafts give additional speedups, and training with reverse KL or JSD on draft-generated outputs works best.</p>
 
